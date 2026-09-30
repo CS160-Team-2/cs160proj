@@ -117,7 +117,7 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1          # see Troubleshooting #2 if blocked
 
 python -m pip install --upgrade pip
-pip install -r requirements.txt
+pip install -r ../requirements.txt
 
 copy .env.example .env
 ```
@@ -131,7 +131,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 
 python -m pip install --upgrade pip
-pip install -r requirements.txt
+pip install -r ../requirements.txt
 
 cp .env.example .env
 ```

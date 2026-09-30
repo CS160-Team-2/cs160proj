@@ -91,7 +91,7 @@ Your prompt now starts with `(.venv)`. That's the whole point of a virtual envir
 
 ```bash
 python -m pip install --upgrade pip
-pip install -r requirements.txt
+pip install -r ../requirements.txt
 cp .env.example .env
 ```
 
