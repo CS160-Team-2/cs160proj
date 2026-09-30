@@ -1,0 +1,55 @@
+# OFS — Python dependencies
+# =========================================================================
+# Verified compatible set. Install with:
+#     pip install -r requirements.txt
+#
+# Python: 3.11 or 3.12. Do not use 3.13 yet — some packages below do not
+# publish wheels for it, which forces a source build and fails on Windows
+# without Visual C++ Build Tools installed.
+#
+# Platforms: every package here ships prebuilt wheels for BOTH
+# Windows x86-64 and macOS arm64 (Apple Silicon M1–M5). Nothing in this
+# file compiles from source on a normal machine, which is deliberate —
+# see the note on mysqlclient at the bottom.
+# =========================================================================
+
+# --- Web framework -------------------------------------------------------
+Flask==3.0.3
+Werkzeug==3.0.3          # Flask's WSGI layer; pinned so a Werkzeug
+                         # release cannot break Flask independently
+
+# --- Cross-origin requests from the React dev server ---------------------
+Flask-Cors==4.0.1
+
+# --- MySQL driver --------------------------------------------------------
+PyMySQL==1.1.1           # Pure Python: no compiler, no MySQL headers
+cryptography==42.0.8     # REQUIRED, not optional. MySQL 8 defaults to the
+                         # caching_sha2_password auth plugin, and PyMySQL
+                         # cannot speak it without this. Leaving it out
+                         # gives: "cryptography is required for
+                         # sha256_password or caching_sha2_password"
+
+# --- Configuration -------------------------------------------------------
+python-dotenv==1.0.1     # Loads backend/.env so nobody has to export
+                         # database credentials by hand every session
+
+# --- Testing -------------------------------------------------------------
+pytest==8.2.2
+pytest-cov==5.0.0        # Coverage reporting, per the test plan's targets
+
+
+# =========================================================================
+# Why PyMySQL and not mysqlclient
+# =========================================================================
+# mysqlclient is faster and is what many Flask tutorials use, but it is a
+# C extension that needs a compiler and the MySQL client headers at
+# install time. On Windows that means installing Visual C++ Build Tools;
+# on Apple Silicon it means `brew install mysql-client` plus setting
+# PKG_CONFIG_PATH. For a six-person team on mixed hardware, that is three
+# or four wasted evenings for a speed difference this project will never
+# notice. PyMySQL installs identically everywhere.
+#
+# Newer versions of these packages will probably work. This is the set
+# that has been verified to install and run together on both platforms —
+# if someone upgrades, re-run the spike before pushing the change.
+# =========================================================================

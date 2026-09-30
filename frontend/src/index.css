@@ -1,0 +1,8 @@
+/* Tailwind CSS v4 — one import, no config file needed.
+   If the team uses v3 instead, replace this line with:
+     @tailwind base;
+     @tailwind components;
+     @tailwind utilities;
+   and add tailwind.config.js + postcss.config.js. */
+
+@import "tailwindcss";
