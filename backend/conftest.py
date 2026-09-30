@@ -32,12 +32,23 @@ requires_mysql = pytest.mark.skipif(
 
 
 @pytest.fixture
-def client():
-    """Flask's test client. Calls the API in-process, so these tests need
-    no running server and no network."""
+def app():
+    """Provide the Flask application in testing mode."""
     flask_app.config.update(TESTING=True)
-    with flask_app.test_client() as c:
-        yield c
+    yield flask_app
+
+
+@pytest.fixture
+def client(app):
+    """Call Flask routes without starting a live server."""
+    with app.test_client() as test_client:
+        yield test_client
+
+
+@pytest.fixture
+def runner(app):
+    """Run Flask CLI commands during tests."""
+    return app.test_cli_runner()
 
 
 @pytest.fixture
