@@ -43,6 +43,17 @@ CREATE TABLE customers (
   full_name   VARCHAR(120) NOT NULL
 ) ENGINE=InnoDB;
 
+CREATE TABLE users 
+(
+  user_id       BIGINT AUTO_INCREMENT PRIMARY KEY,
+  email         VARCHAR(255) NOT NULL UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
+  full_name     VARCHAR(120) NOT NULL,
+  role          ENUM('customer','employee','manager') NOT NULL DEFAULT 'customer',
+  is_active     BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
 CREATE TABLE carts (
   cart_id     BIGINT AUTO_INCREMENT PRIMARY KEY,
   customer_id BIGINT NOT NULL UNIQUE,          -- one open cart per customer

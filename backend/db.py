@@ -220,3 +220,42 @@ def relist_product(product_id):
         except Exception:
             conn.rollback()
             raise
+
+# =====================================================================
+# User — login and signup
+# =====================================================================
+def create_user(email, password_hash, full_name, role="customer"):
+    with get_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO users (email, password_hash, full_name, role) "
+                    "VALUES (%s, %s, %s, %s)",
+                    (email, password_hash, full_name, role),
+                )
+                user_id = cur.lastrowid
+            conn.commit()
+            return user_id
+        except Exception:
+            conn.rollback()
+            raise
+
+
+def get_user_by_email(email):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM users WHERE email = %s",
+                (email,),
+            )
+            return cur.fetchone()
+
+
+def get_user_by_id(user_id):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM users WHERE user_id = %s",
+                (user_id,),
+            )
+            return cur.fetchone()

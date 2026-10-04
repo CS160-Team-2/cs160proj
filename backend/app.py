@@ -32,15 +32,22 @@ from flask_cors import CORS
 
 import db
 import rules
+import auth
 
 app = Flask(__name__)
+app.secret_key = "key"
+app.register_blueprint(auth.auth_bp)
 
 # In development React runs on a different port, so the browser treats it
 # as a different origin. Behind Apache (see deploy/) both are served from
 # the same origin and this is no longer needed — which is itself one of
 # the things the Apache step proves.
 FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN", "http://localhost:5173")
-CORS(app, resources={r"/api/*": {"origins": [FRONTEND_ORIGIN]}})
+CORS(
+    app,
+    resources={r"/api/*": {"origins": [FRONTEND_ORIGIN]}},
+    supports_credentials=True
+)
 
 
 def money(value):
