@@ -6,6 +6,11 @@ provided below.
 """
 
 import pytest
+from tests.fakes import (
+    FakeMappingService,
+    FakePaymentGateway,
+    FakeVehicleInterface,
+)
 
 import db as database
 from app import app as flask_app
@@ -89,3 +94,17 @@ def temp_product():
             database.unlist_product(pid)
         except Exception:                              # noqa: BLE001
             pass
+
+@pytest.fixture
+def fake_payment_gateway():
+    return FakePaymentGateway()
+
+
+@pytest.fixture
+def fake_mapping_service():
+    return FakeMappingService()
+
+
+@pytest.fixture
+def fake_vehicle_interface():
+    return FakeVehicleInterface()
