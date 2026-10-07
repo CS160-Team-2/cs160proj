@@ -75,7 +75,6 @@ def test_fractional_weights_do_not_drift():
     assert calculate_total_weight(lines) == Decimal("1.00")
 
     # The same trap shown directly, for comparison:
-    assert sum(0.1 for _ in range(10)) != 1.0        # float: fails
     assert sum(Decimal("0.10") for _ in range(10)) == Decimal("1.00")
 
 
