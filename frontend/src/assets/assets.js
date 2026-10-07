@@ -1,33 +1,83 @@
+import almonds from './almonds.jpeg'
 import apple from './apple.jpeg'
+import avocado from './avocado.jpeg'
 import banana from './bananana.jpeg'
+import blueberries from './blueberries.jpeg'
 import broccoli from './broccoli.jpeg'
+import butter from './butter.jpeg'
+import carrot from './carrot.jpeg'
+import cherries from './cherries.jpeg'
+import corn from './corn.jpeg'
+import cucumber from './cucumber.jpeg'
 import egg from './egg.jpeg'
+import garlic from './garlic.jpeg'
+import grapeJuice from './grape_juice.jpeg'
+import grapes from './grapes.jpeg'
 import honey from './honey.jpeg'
+import italianCheese from './italian_cheese.jpeg'
+import italianSalame from './italian_salame.jpeg'
+import lemon from './lemon.jpeg'
 import lettuce from './lettuce.jpeg'
 import mango from './mango.jpeg'
+import milk from './milk.jpeg'
+import mozzarellaCheese from './mozzarela_cheese.jpeg'
+import oliveOil from './olive_oil.jpeg'
 import orange from './orange.jpeg'
+import orangeJuice from './orange_juice.jpeg'
+import passionfruitJuice from './passionfruit_juice.jpeg'
 import peaches from './peaches.jpeg'
+import pickles from './pickles.jpeg'
 import pineapple from './pineapple.jpeg'
+import potato from './potato.jpeg'
+import raspberries from './raspberries.jpeg'
 import redBellPepper from './red_bell_pepper.jpeg'
 import redOnion from './red_onion.jpeg'
+import strawberries from './strawberries.jpeg'
 import stringBeans from './string_beans.jpeg'
 import tomato from './tomato.jpeg'
+import walnuts from './wallnuts.jpeg'
+import watermelon from './watermelon.jpeg'
 
 export const assets = {
+  almonds,
   apple,
+  avocado,
   banana,
+  blueberries,
   broccoli,
+  butter,
+  carrot,
+  cherries,
+  corn,
+  cucumber,
   egg,
+  garlic,
+  grapeJuice,
+  grapes,
   honey,
+  italianCheese,
+  italianSalame,
+  lemon,
   lettuce,
   mango,
+  milk,
+  mozzarellaCheese,
+  oliveOil,
   orange,
+  orangeJuice,
+  passionfruitJuice,
   peaches,
+  pickles,
   pineapple,
+  potato,
+  raspberries,
   redBellPepper,
   redOnion,
+  strawberries,
   stringBeans,
   tomato,
+  walnuts,
+  watermelon,
 }
 
 export const products = [
@@ -170,5 +220,255 @@ export const products = [
     unit_weight_lb: '1.00',
     stock: 42,
     image: tomato,
+  },
+  {
+    product_id: 15,
+    name: 'Organic Almonds, 1 lb',
+    description: 'Raw organic almonds, a crunchy source of protein for snacking and baking.',
+    category: 'Pantry',
+    price: '9.99',
+    unit_weight_lb: '1.00',
+    stock: 45,
+    image: almonds,
+  },
+  {
+    product_id: 16,
+    name: 'Organic Avocados, 2 lb bag',
+    description: 'Creamy organic Hass avocados, ready for toast, salads and guacamole.',
+    category: 'Fruits',
+    price: '5.99',
+    unit_weight_lb: '2.00',
+    stock: 30,
+    image: avocado,
+  },
+  {
+    product_id: 17,
+    name: 'Organic Blueberries, 1 lb',
+    description: 'Plump, sweet organic blueberries, great for breakfast and baking.',
+    category: 'Fruits',
+    price: '6.99',
+    unit_weight_lb: '1.00',
+    stock: 28,
+    image: blueberries,
+  },
+  {
+    product_id: 18,
+    name: 'Organic Butter, 1 lb',
+    description: 'Rich organic butter made from pasture-raised cream.',
+    category: 'Dairy & Eggs',
+    price: '6.49',
+    unit_weight_lb: '1.00',
+    stock: 35,
+    image: butter,
+  },
+  {
+    product_id: 19,
+    name: 'Organic Carrots, 2 lb bag',
+    description: 'Sweet, crunchy organic carrots, perfect raw or roasted.',
+    category: 'Vegetables',
+    price: '2.58',
+    unit_weight_lb: '2.00',
+    stock: 50,
+    image: carrot,
+  },
+  {
+    product_id: 20,
+    name: 'Organic Cherries, 1 lb',
+    description: 'Dark, juicy organic cherries picked at peak sweetness.',
+    category: 'Fruits',
+    price: '7.99',
+    unit_weight_lb: '1.00',
+    stock: 22,
+    image: cherries,
+  },
+  {
+    product_id: 21,
+    name: 'Organic Sweet Corn, 4 ears',
+    description: 'Tender organic sweet corn on the cob, ideal for grilling or boiling.',
+    category: 'Vegetables',
+    price: '4.99',
+    unit_weight_lb: '3.00',
+    stock: 34,
+    image: corn,
+  },
+  {
+    product_id: 22,
+    name: 'Organic Cucumbers, 2 count',
+    description: 'Crisp, refreshing organic cucumbers for salads and snacking.',
+    category: 'Vegetables',
+    price: '2.99',
+    unit_weight_lb: '1.50',
+    stock: 40,
+    image: cucumber,
+  },
+  {
+    product_id: 23,
+    name: 'Organic Garlic, 0.5 lb',
+    description: 'Fresh organic garlic bulbs with a bold, aromatic flavor.',
+    category: 'Vegetables',
+    price: '3.49',
+    unit_weight_lb: '0.50',
+    stock: 55,
+    image: garlic,
+  },
+  {
+    product_id: 24,
+    name: 'Organic Grape Juice, 64 fl oz',
+    description: '100% organic grape juice, no sugar added.',
+    category: 'Beverages',
+    price: '6.99',
+    unit_weight_lb: '4.50',
+    stock: 26,
+    image: grapeJuice,
+  },
+  {
+    product_id: 25,
+    name: 'Organic Grapes, 2 lb',
+    description: 'Sweet, seedless organic grapes sold by the bunch.',
+    category: 'Fruits',
+    price: '7.98',
+    unit_weight_lb: '2.00',
+    stock: 32,
+    image: grapes,
+  },
+  {
+    product_id: 26,
+    name: 'Aged Italian Parmesan Cheese, 1 lb',
+    description: 'Aged Italian hard cheese with a rich, nutty flavor for grating or shaving.',
+    category: 'Dairy & Eggs',
+    price: '6.79',
+    unit_weight_lb: '1.00',
+    stock: 18,
+    image: italianCheese,
+  },
+  {
+    product_id: 27,
+    name: 'Italian Salame, 1 lb',
+    description: 'Dry-cured Italian salame, sliced thin for sandwiches and charcuterie boards.',
+    category: 'Meat & Deli',
+    price: '12.99',
+    unit_weight_lb: '1.00',
+    stock: 15,
+    image: italianSalame,
+  },
+  {
+    product_id: 28,
+    name: 'Organic Lemons, 2 lb bag',
+    description: 'Bright, juicy organic lemons for cooking, baking and drinks.',
+    category: 'Fruits',
+    price: '3.99',
+    unit_weight_lb: '2.00',
+    stock: 44,
+    image: lemon,
+  },
+  {
+    product_id: 29,
+    name: 'Organic Whole Milk, 1 gallon',
+    description: 'Fresh organic whole milk from grass-fed cows.',
+    category: 'Dairy & Eggs',
+    price: '7.49',
+    unit_weight_lb: '8.60',
+    stock: 24,
+    image: milk,
+  },
+  {
+    product_id: 30,
+    name: 'Fresh Mozzarella Cheese, 1 lb',
+    description: 'Soft, milky mozzarella, perfect for pizza, caprese and pasta.',
+    category: 'Dairy & Eggs',
+    price: '6.99',
+    unit_weight_lb: '1.00',
+    stock: 20,
+    image: mozzarellaCheese,
+  },
+  {
+    product_id: 31,
+    name: 'Organic Extra Virgin Olive Oil, 16 fl oz',
+    description: 'Cold-pressed organic extra virgin olive oil with a smooth, fruity taste.',
+    category: 'Pantry',
+    price: '7.94',
+    unit_weight_lb: '1.25',
+    stock: 30,
+    image: oliveOil,
+  },
+  {
+    product_id: 32,
+    name: 'Organic Orange Juice, 52 fl oz',
+    description: 'Pulp-free organic orange juice, pressed from ripe oranges.',
+    category: 'Beverages',
+    price: '8.39',
+    unit_weight_lb: '3.50',
+    stock: 27,
+    image: orangeJuice,
+  },
+  {
+    product_id: 33,
+    name: 'Organic Passion Fruit Juice, 32 fl oz',
+    description: 'Tangy, tropical organic passion fruit juice.',
+    category: 'Beverages',
+    price: '5.99',
+    unit_weight_lb: '2.25',
+    stock: 16,
+    image: passionfruitJuice,
+  },
+  {
+    product_id: 34,
+    name: 'Organic Pickles, 24 oz jar',
+    description: 'All-natural organic pickles with no preservatives.',
+    category: 'Pantry',
+    price: '5.49',
+    unit_weight_lb: '2.00',
+    stock: 29,
+    image: pickles,
+  },
+  {
+    product_id: 35,
+    name: 'Organic Potatoes, 5 lb bag',
+    description: 'Versatile organic potatoes for baking, mashing and roasting.',
+    category: 'Vegetables',
+    price: '6.99',
+    unit_weight_lb: '5.00',
+    stock: 36,
+    image: potato,
+  },
+  {
+    product_id: 36,
+    name: 'Organic Raspberries, 1 lb',
+    description: 'Delicate, tart-sweet organic raspberries.',
+    category: 'Fruits',
+    price: '7.99',
+    unit_weight_lb: '1.00',
+    stock: 0,
+    image: raspberries,
+  },
+  {
+    product_id: 37,
+    name: 'Organic Strawberries, 1 lb',
+    description: 'Sweet, ripe organic strawberries picked fresh.',
+    category: 'Fruits',
+    price: '4.49',
+    unit_weight_lb: '1.00',
+    stock: 41,
+    image: strawberries,
+  },
+  {
+    product_id: 38,
+    name: 'Organic Walnuts, 1 lb',
+    description: 'Shelled organic walnut halves, rich and earthy for baking and salads.',
+    category: 'Pantry',
+    price: '9.49',
+    unit_weight_lb: '1.00',
+    stock: 33,
+    image: walnuts,
+  },
+  {
+    product_id: 39,
+    name: 'Organic Watermelon, 5 lb',
+    description: 'Sweet, juicy organic watermelon for hot days.',
+    category: 'Fruits',
+    price: '5.99',
+    unit_weight_lb: '5.00',
+    stock: 12,
+    image: watermelon,
   },
 ]

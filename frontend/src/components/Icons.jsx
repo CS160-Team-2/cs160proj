@@ -29,3 +29,12 @@ export const ShoppingCartIcon = ({ className }) => (
     <circle cx="17" cy="19.5" r="1.4" />
   </svg>
 )
+
+export const TrashIcon = ({ className }) => (
+  <svg {...base} className={className} aria-hidden="true">
+    <path d="M4 7h16" />
+    <path d="M9 7V4h6v3" />
+    <path d="M6 7l1 13h10l1-13" />
+    <path d="M10 11v6M14 11v6" />
+  </svg>
+)

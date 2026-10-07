@@ -2,6 +2,8 @@ import React, { useEffect } from 'react'
 import { Routes, Route, useLocation } from 'react-router-dom'
 import Home from './pages/Home'
 import Item from './pages/Item'
+import Cart from './pages/Cart'
+import Products from './pages/Products'
 import NavigationBar from './components/NavigationBar'
 import Footer from './components/Footer'
 
@@ -21,6 +23,8 @@ const App = () => {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/item/:itemId" element={<Item />} />
+        <Route path="/products" element={<Products />} />
+        <Route path="/cart" element={<Cart />} />
       </Routes>
     </div>
 

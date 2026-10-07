@@ -1,4 +1,4 @@
-import React, { useContext } from 'react'
+import React, { useContext, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { StoreContext } from '../context/StoreContext'
 import RelatedItems from '../components/RelatedItems'
@@ -6,15 +6,45 @@ import RelatedItems from '../components/RelatedItems'
 const Item = () => {
 
   const { itemId } = useParams()
-  const { products, currency, addToCart } = useContext(StoreContext)
+  const { products, currency, shoppingCartItems, addToCart } = useContext(StoreContext)
+
+  const [quantity, setQuantity] = useState('1')
+  const [message, setMessage] = useState({ text: '', error: false })
+
+  useEffect(() => {
+    setQuantity('1')
+    setMessage({ text: '', error: false })
+  }, [itemId])
 
   const itemData = products.find((item) => String(item.product_id) === itemId)
+
+  const handleAddToCart = () => {
+    const amount = Number(quantity)
+    if (quantity.trim() === '' || !Number.isInteger(amount) || amount < 1) {
+      setMessage({ text: 'Please enter a quantity of at least 1.', error: true })
+      return
+    }
+
+    const inCart = shoppingCartItems[itemData.product_id] || 0
+    const remaining = itemData.stock - inCart
+    if (remaining <= 0) {
+      setMessage({ text: `All ${itemData.stock} available are already in your cart.`, error: true })
+      return
+    }
+    if (amount > remaining) {
+      setMessage({ text: `Only ${remaining} more available. Please lower the quantity.`, error: true })
+      return
+    }
+
+    const added = addToCart(itemData.product_id, amount)
+    setMessage({ text: `Added ${added} to your cart.`, error: false })
+  }
 
   return itemData ? (
     <div className="border-t-2 pt-10 transition-opacity ease-in duration-500 opacity-100">
       <div className="flex gap-12 sm:gap-12 flex-col sm:flex-row">
         <div className="w-full sm:w-1/2">
-          <img className="w-full h-auto" src={itemData.image} alt={itemData.name} />
+          <img className="w-full aspect-square object-cover" src={itemData.image} alt={itemData.name} />
         </div>
 
         <div className="flex-1">
@@ -26,7 +56,27 @@ const Item = () => {
           <p className="mt-5 text-gray-600 md:w-4/5">{itemData.description}</p>
 
           {itemData.stock > 0 ? (
-            <button className="bg-green-600 text-white mt-8 px-8 py-3 text-sm active:bg-green-400" onClick={() => addToCart(itemData.product_id)}>ADD TO CART</button>
+            <>
+            <div className="mt-6">
+              <label htmlFor="quantity" className="block text-sm font-medium text-gray-700">Quantity</label>
+              <input
+                id="quantity"
+                className="border border-gray-300 mt-2 px-3 py-2 w-24"
+                type="number"
+                min={1}
+                step={1}
+                value={quantity}
+                onChange={(e) => {
+                  setQuantity(e.target.value)
+                  setMessage({ text: '', error: false })
+                }}
+              />
+              {message.text && (
+                <p className={`mt-2 text-sm ${message.error ? 'text-red-600' : 'text-green-600'}`}>{message.text}</p>
+              )}
+            </div>
+            <button className="bg-green-600 text-white mt-6 px-8 py-3 text-sm active:bg-green-400" onClick={handleAddToCart}>ADD TO CART</button>
+            </>
           ) : (
             <p className="mt-8 font-medium text-red-600">Currently unavailable</p>
           )}

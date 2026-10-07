@@ -19,10 +19,10 @@ const NavigationBar = () => {
           <p>HOME</p>
           <hr className="w-2/4 border-none h-[1.5px] bg-white hidden" />
         </NavLink>
-        <li className="flex flex-col items-center gap-1 cursor-default">
-          <p>ALL PRODUCTS</p>
+        <NavLink to="/products" className="flex flex-col items-center gap-1 cursor-pointer">
+          <p>PRODUCTS</p>
           <hr className="w-2/4 border-none h-[1.5px] bg-white hidden" />
-        </li>
+        </NavLink>
         <li className="flex flex-col items-center gap-1 cursor-default">
           <p>ABOUT</p>
           <hr className="w-2/4 border-none h-[1.5px] bg-white hidden" />
@@ -38,10 +38,10 @@ const NavigationBar = () => {
           <ProfileIcon className="w-8" />
         </div>
 
-        <div className="relative cursor-default" aria-disabled="true">
+        <Link to="/cart" className="relative">
           <ShoppingCartIcon className="w-8" />
           <p className="absolute right-[-4px] bottom-[20px] w-4 text-center leading-4 bg-yellow-400 text-black rounded-full text-[10px]">{getShoppingCartCount()}</p>
-        </div>
+        </Link>
       </div>
     </div>
   )

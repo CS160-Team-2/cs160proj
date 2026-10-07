@@ -9,7 +9,7 @@ const StoreItem = ({ id, name, image, price, weight, available }) => {
   return (
     <Link className="text-gray-700 cursor-pointer" to={`/item/${id}`}>
         <div className="overflow-hidden">
-            <img className={`hover:scale-120 transition ease-in-out ${available ? '' : 'opacity-50'}`} src={image} alt={name} />
+            <img className={`aspect-square object-cover hover:scale-120 transition ease-in-out ${available ? '' : 'opacity-50'}`} src={image} alt={name} />
         </div>
 
         <p className="pt-3 pb-1 text-sm">{name}</p>
