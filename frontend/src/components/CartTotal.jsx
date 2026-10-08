@@ -1,13 +1,13 @@
 import React, { useContext } from 'react'
 import { StoreContext } from '../context/StoreContext'
 
+// Every figure comes from the backend, which uses the same rules as
+// checkout, so the cart and the receipt always agree.
 const CartTotal = () => {
 
-  const { currency, getCartAmount, getCartWeight, getDeliveryFee } = useContext(StoreContext)
-
-  const subtotal = getCartAmount()
-  const deliveryFee = getDeliveryFee()
-  const total = subtotal === 0 ? 0 : subtotal + deliveryFee
+  const { currency, cart } = useContext(StoreContext)
+  const empty = cart.items.length === 0
+  const freeDelivery = cart.delivery_fee === '0.00'
 
   return (
     <div className="w-full">
@@ -18,23 +18,24 @@ const CartTotal = () => {
       <div className="flex flex-col gap-2 text-sm">
         <div className="flex justify-between">
           <p>Subtotal</p>
-          <p>{currency}{subtotal.toFixed(2)}</p>
+          <p>{currency}{cart.subtotal}</p>
         </div>
         <hr />
         <div className="flex justify-between">
           <p>Total Weight</p>
-          <p>{getCartWeight().toFixed(2)} lb</p>
+          <p>{cart.total_weight_lb} lb</p>
         </div>
         <hr />
         <div className="flex justify-between">
           <p>Delivery Fee</p>
-          <p>{subtotal === 0 ? `${currency}0.00` : deliveryFee === 0 ? 'Free' : `${currency}${deliveryFee.toFixed(2)}`}</p>
+          <p>{empty ? `${currency}0.00` : freeDelivery ? 'Free' : `${currency}${cart.delivery_fee}`}</p>
         </div>
         <hr />
         <div className="flex justify-between">
           <b>Total</b>
-          <b>{currency}{total.toFixed(2)}</b>
+          <b>{currency}{cart.estimated_total}</b>
         </div>
+        <p className="text-xs text-gray-500">Tax is added at checkout.</p>
       </div>
     </div>
   )

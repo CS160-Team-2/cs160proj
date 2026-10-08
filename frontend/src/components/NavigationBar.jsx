@@ -1,11 +1,19 @@
-import React, { useContext } from 'react'
-import { Link, NavLink } from 'react-router-dom'
+import React, { useContext, useState } from 'react'
+import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { StoreContext } from '../context/StoreContext'
 import { HomeIcon, ProfileIcon, ShoppingCartIcon } from './Icons'
 
 const NavigationBar = () => {
 
-  const { getShoppingCartCount } = useContext(StoreContext)
+  const { getShoppingCartCount, user, signOut } = useContext(StoreContext)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const navigate = useNavigate()
+
+  const handleSignOut = async () => {
+    setMenuOpen(false)
+    await signOut()
+    navigate('/')
+  }
 
   return (
     <div className="flex items-center justify-between px-7 py-2 font-semibold bg-green-600 fixed w-full top-0 z-50">
@@ -34,9 +42,26 @@ const NavigationBar = () => {
       </ul>
 
       <div className="flex items-center gap-5 text-white">
-        <div className="cursor-default" aria-disabled="true">
-          <ProfileIcon className="w-8" />
-        </div>
+        {user ? (
+          <div className="relative">
+            <button onClick={() => setMenuOpen(!menuOpen)} aria-label="Account menu" aria-expanded={menuOpen} className="cursor-pointer flex">
+              <ProfileIcon className="w-8" />
+            </button>
+            {menuOpen && (
+              <div className="absolute right-0 mt-2 w-44 bg-white text-gray-700 text-sm shadow-md flex flex-col py-2">
+                <p className="px-4 py-1 text-xs text-gray-500 truncate">{user.full_name}</p>
+                {user.role === 'customer' && (
+                  <Link to="/orders" onClick={() => setMenuOpen(false)} className="px-4 py-2 hover:bg-gray-100">My orders</Link>
+                )}
+                <button onClick={handleSignOut} className="px-4 py-2 text-left hover:bg-gray-100 cursor-pointer">Sign out</button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <Link to="/login" aria-label="Sign in">
+            <ProfileIcon className="w-8" />
+          </Link>
+        )}
 
         <Link to="/cart" className="relative">
           <ShoppingCartIcon className="w-8" />

@@ -28,7 +28,7 @@ const RelatedItems = ({ id, category }) => {
                            image={item.image}
                            price={item.price}
                            weight={item.unit_weight_lb}
-                           available={item.stock > 0}
+                           available={item.available}
                 />
             ))
         }

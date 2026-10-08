@@ -18,7 +18,7 @@ const Item = () => {
 
   const itemData = products.find((item) => String(item.product_id) === itemId)
 
-  const handleAddToCart = () => {
+  const handleAddToCart = async () => {
     const amount = Number(quantity)
     if (quantity.trim() === '' || !Number.isInteger(amount) || amount < 1) {
       setMessage({ text: 'Please enter a quantity of at least 1.', error: true })
@@ -36,8 +36,11 @@ const Item = () => {
       return
     }
 
-    const added = addToCart(itemData.product_id, amount)
-    setMessage({ text: `Added ${added} to your cart.`, error: false })
+    // The backend has the final say on stock and explains any refusal.
+    const result = await addToCart(itemData.product_id, amount)
+    setMessage(result.ok
+      ? { text: `Added ${amount} to your cart.`, error: false }
+      : { text: result.message, error: true })
   }
 
   return itemData ? (
@@ -55,7 +58,7 @@ const Item = () => {
           <p className="mt-2 text-sm text-gray-500">{itemData.unit_weight_lb} lb</p>
           <p className="mt-5 text-gray-600 md:w-4/5">{itemData.description}</p>
 
-          {itemData.stock > 0 ? (
+          {itemData.available ? (
             <>
             <div className="mt-6">
               <label htmlFor="quantity" className="block text-sm font-medium text-gray-700">Quantity</label>
