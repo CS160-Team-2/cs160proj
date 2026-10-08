@@ -1,4 +1,4 @@
-import React, { useContext } from 'react'
+import React, { useContext, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { StoreContext } from '../context/StoreContext'
 import CartTotal from '../components/CartTotal'
@@ -6,11 +6,13 @@ import { TrashIcon } from '../components/Icons'
 
 const Cart = () => {
 
-  const { products, currency, shoppingCartItems, updateQuantity, removeFromCart } = useContext(StoreContext)
+  const { currency, cartItems: cartData, updateQuantity, removeFromCart } = useContext(StoreContext)
+  const [message, setMessage] = useState('')
 
-  const cartData = products
-    .filter((product) => shoppingCartItems[product.product_id] > 0)
-    .map((product) => ({ ...product, quantity: shoppingCartItems[product.product_id] }))
+  const change = async (action) => {
+    const result = await action
+    setMessage(result.ok ? '' : result.message)
+  }
 
   return (
     <div className="border-t-2 pt-14">
@@ -25,6 +27,7 @@ const Cart = () => {
         </div>
       ) : (
         <>
+          {message && <p className="mb-3 text-sm text-red-600">{message}</p>}
           <div>
             {cartData.map((item) => (
               <div key={item.product_id} className="py-4 border-t border-b text-gray-700 grid grid-cols-[4fr_0.5fr_0.5fr] sm:grid-cols-[4fr_2fr_0.5fr] items-center gap-4">
@@ -38,6 +41,7 @@ const Cart = () => {
                       <p>{currency}{item.price}</p>
                       <p className="text-sm text-gray-500">{item.unit_weight_lb} lb</p>
                     </div>
+                    {item.problem && <p className="mt-1 text-sm text-red-600">{item.problem}</p>}
                   </div>
                 </div>
 
@@ -49,11 +53,11 @@ const Cart = () => {
                   value={item.quantity}
                   onChange={(e) => {
                     const value = Number(e.target.value)
-                    if (Number.isInteger(value) && value > 0) updateQuantity(item.product_id, value)
+                    if (Number.isInteger(value) && value > 0) change(updateQuantity(item.product_id, value))
                   }}
                 />
 
-                <button onClick={() => removeFromCart(item.product_id)} aria-label={`Remove ${item.name}`}>
+                <button onClick={() => change(removeFromCart(item.product_id))} aria-label={`Remove ${item.name}`}>
                   <TrashIcon className="w-5 cursor-pointer" />
                 </button>
               </div>

@@ -21,7 +21,7 @@ const shuffle = (list) => {
 
 const Products = () => {
 
-  const { products } = useContext(StoreContext)
+  const { products, productsLoading } = useContext(StoreContext)
 
   const [showFilter, setShowFilter] = useState(false)
   const [categories, setCategories] = useState([])
@@ -126,7 +126,9 @@ const Products = () => {
           </select>
         </div>
 
-        {visible.length === 0 ? (
+        {productsLoading ? (
+          <p className="py-16 text-center text-gray-500">Loading products...</p>
+        ) : visible.length === 0 ? (
           <p className="py-16 text-center text-gray-500">No products match your filters.</p>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 gap-y-6">
@@ -138,7 +140,7 @@ const Products = () => {
                 image={item.image}
                 price={item.price}
                 weight={item.unit_weight_lb}
-                available={item.stock > 0}
+                available={item.available}
               />
             ))}
           </div>
