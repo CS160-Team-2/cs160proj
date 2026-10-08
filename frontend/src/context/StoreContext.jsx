@@ -24,6 +24,8 @@ const StoreContextProvider = (props) => {
     const [productsError, setProductsError] = useState('')
     const [productsLoading, setProductsLoading] = useState(true)
     const [cart, setCart] = useState(emptyCart)
+    // undefined while we ask the backend, then the user or null.
+    const [user, setUser] = useState(undefined)
 
     const loadProducts = useCallback(async () => {
         try {
@@ -49,7 +51,30 @@ const StoreContextProvider = (props) => {
     useEffect(() => {
         loadProducts()
         loadCart()
+        api('/api/auth/me')
+            .then((data) => setUser(data.user))
+            .catch(() => setUser(null))
     }, [loadProducts, loadCart])
+
+    // Signing in merges anything added to the cart while signed out into
+    // the saved cart, so the cart is reloaded afterwards.
+    const startSession = async (path, body) => {
+        const data = await api(path, { method: 'POST', body })
+        setUser(data.user)
+        await loadCart()
+        return data.user
+    }
+
+    const signIn = (email, password) => startSession('/api/auth/login', { email, password })
+
+    const register = (fullName, email, password) =>
+        startSession('/api/auth/register', { full_name: fullName, email, password })
+
+    const signOut = async () => {
+        await api('/api/auth/logout', { method: 'POST' }).catch(() => {})
+        setUser(null)
+        await loadCart()
+    }
 
     // The backend checks stock and returns the whole repriced cart after
     // every change. These return {ok, message} so pages can show the
@@ -81,6 +106,10 @@ const StoreContextProvider = (props) => {
         productsLoading,
         productsError,
         currency,
+        user,
+        signIn,
+        register,
+        signOut,
         cart,
         cartItems: cart.items.map(withImage),
         shoppingCartItems,

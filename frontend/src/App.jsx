@@ -4,6 +4,9 @@ import Home from './pages/Home'
 import Item from './pages/Item'
 import Cart from './pages/Cart'
 import Products from './pages/Products'
+import Login from './pages/Login'
+import Checkout from './pages/Checkout'
+import { OrderDetail, OrderHistory } from './pages/Orders'
 import NavigationBar from './components/NavigationBar'
 import Footer from './components/Footer'
 import { StoreContext } from './context/StoreContext'
@@ -30,6 +33,10 @@ const App = () => {
         <Route path="/item/:itemId" element={<Item />} />
         <Route path="/products" element={<Products />} />
         <Route path="/cart" element={<Cart />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/checkout" element={<Checkout />} />
+        <Route path="/orders" element={<OrderHistory />} />
+        <Route path="/orders/:orderNumber" element={<OrderDetail />} />
       </Routes>
     </div>
 

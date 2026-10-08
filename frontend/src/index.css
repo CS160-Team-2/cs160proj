@@ -7,3 +7,13 @@
 a.active hr {
     display: block;
 }
+
+/* The design is light only. Without this, browsers in dark mode show a
+   dark page behind black text. */
+:root {
+    color-scheme: light;
+}
+
+body {
+    background-color: white;
+}

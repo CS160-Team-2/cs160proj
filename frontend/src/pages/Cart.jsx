@@ -6,7 +6,7 @@ import { TrashIcon } from '../components/Icons'
 
 const Cart = () => {
 
-  const { currency, cartItems: cartData, updateQuantity, removeFromCart } = useContext(StoreContext)
+  const { currency, cart, cartItems: cartData, updateQuantity, removeFromCart } = useContext(StoreContext)
   const [message, setMessage] = useState('')
 
   const change = async (action) => {
@@ -68,7 +68,11 @@ const Cart = () => {
             <div className="w-full sm:w-[450px]">
               <CartTotal />
               <div className="w-full text-end">
-                <button className="bg-green-600 text-white text-sm my-8 px-8 py-3 cursor-default" aria-disabled="true">PROCEED TO CHECKOUT</button>
+                {cart.can_check_out ? (
+                  <Link to="/checkout" className="inline-block bg-green-600 text-white text-sm my-8 px-8 py-3 active:bg-green-400">PROCEED TO CHECKOUT</Link>
+                ) : (
+                  <p className="my-8 text-sm text-red-600">Please fix the items marked above before checking out.</p>
+                )}
               </div>
             </div>
           </div>
