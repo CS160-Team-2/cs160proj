@@ -30,7 +30,7 @@ const Login = () => {
         ? await register(fullName, email, password)
         : await signIn(email, password)
       // Staff have no shop pages yet; the dashboard is still to be built.
-      navigate(user.role === 'customer' ? next : '/')
+      navigate(user.role === 'customer' ? next : '/inventory')
     } catch (err) {
       setError(err.message)
     } finally {
