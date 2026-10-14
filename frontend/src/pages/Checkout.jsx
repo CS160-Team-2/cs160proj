@@ -3,15 +3,56 @@ import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { StoreContext } from '../context/StoreContext'
 import { api } from '../api'
 import TextContent from '../components/TextContent'
+import { CardIcon, LockIcon } from '../components/Icons'
 
-// The payment gateway is the backend's test fake for now, so instead of a
-// card form the customer picks a test card. A real gateway would replace
-// this with its own card field, which hands the page a token like these.
-const testCards = [
-  { token: 'tok_visa', label: 'Test Visa ending 4242 (approved)' },
-  { token: 'tok_mastercard', label: 'Test Mastercard ending 4444 (approved)' },
-  { token: 'tok_declined', label: 'Test card that is declined' },
-]
+const emptyCard = { name: '', number: '', expiry: '', cvc: '' }
+
+const stripeTestTokens = {
+  '4242424242424242': 'tok_visa',
+  '5555555555554444': 'tok_mastercard',
+  '4000000000000002': 'tok_declined',
+  '4000000000009995': 'tok_insufficient',
+  '4000000000000069': 'tok_expired',
+}
+
+const digitsOnly = (value) => value.replace(/\D/g, '')
+
+const formatNumber = (value) => digitsOnly(value).slice(0, 19).replace(/(.{4})/g, '$1 ').trim()
+
+const formatExpiry = (value) => {
+  const digits = digitsOnly(value).slice(0, 4)
+  return digits.length > 2 ? `${digits.slice(0, 2)}/${digits.slice(2)}` : digits
+}
+
+const passesLuhn = (number) => {
+  let sum = 0
+  for (let i = 0; i < number.length; i++) {
+    let digit = Number(number[number.length - 1 - i])
+    if (i % 2 === 1) {
+      digit *= 2
+      if (digit > 9) digit -= 9
+    }
+    sum += digit
+  }
+  return sum % 10 === 0
+}
+
+const cardError = (card) => {
+  const number = digitsOnly(card.number)
+  if (!card.name.trim()) return 'Enter the name on the card.'
+  if (number.length < 13 || number.length > 19 || !passesLuhn(number)) return 'Enter a valid card number.'
+  const match = card.expiry.match(/^(\d{2})\/(\d{2})$/)
+  if (!match || Number(match[1]) < 1 || Number(match[1]) > 12) return 'Enter the expiry date as MM/YY.'
+  const expires = new Date(2000 + Number(match[2]), Number(match[1]), 1)
+  if (expires <= new Date()) return 'This card has expired.'
+  if (!/^\d{3,4}$/.test(card.cvc)) return 'Enter the 3 or 4 digit security code.'
+  return ''
+}
+
+const cardToken = (card) => {
+  const number = digitsOnly(card.number)
+  return stripeTestTokens[number] || `tok_card_${number.slice(-4)}`
+}
 
 const emptyAddress = { street: '', city: '', state: 'CA', zip_code: '' }
 
@@ -28,7 +69,7 @@ const Checkout = () => {
 
   const [preview, setPreview] = useState(null)
   const [previewError, setPreviewError] = useState('')
-  const [cardToken, setCardToken] = useState(testCards[0].token)
+  const [card, setCard] = useState(emptyCard)
   const [placing, setPlacing] = useState(false)
   const [orderError, setOrderError] = useState('')
 
@@ -93,15 +134,21 @@ const Checkout = () => {
   }
 
   const placeOrder = async () => {
+    const problem = cardError(card)
+    if (problem) {
+      setOrderError(problem)
+      return
+    }
+
     setOrderError('')
     setPlacing(true)
     try {
       const data = await api('/api/orders', {
         method: 'POST',
-        body: { address_id: addressId, payment_token: cardToken, idempotency_key: checkoutKey.current },
+        body: { address_id: addressId, payment_token: cardToken(card), idempotency_key: checkoutKey.current },
       })
       await Promise.all([reloadCart(), reloadProducts()])
-      navigate(`/orders/${data.order.order_number}`, { state: { justPlaced: true } })
+      navigate('/orders', { state: { justPlaced: true, orderNumber: data.order.order_number } })
     } catch (err) {
       // Declined or out of stock: the cart is unchanged, so they can retry.
       setOrderError(err.message)
@@ -165,10 +212,47 @@ const Checkout = () => {
         <div className="text-xl sm:text-2xl mt-4">
           <TextContent text1={'PAYMENT'} text2={'METHOD'} />
         </div>
-        <select value={cardToken} onChange={(e) => setCardToken(e.target.value)} className="border border-gray-300 px-3 py-2 text-sm">
-          {testCards.map((card) => <option key={card.token} value={card.token}>{card.label}</option>)}
-        </select>
-        <p className="text-xs text-gray-500 -mt-4">Test mode: no real card is charged.</p>
+        <div className="flex flex-col gap-3 border border-gray-300 rounded px-4 py-4">
+          <div className="flex items-center justify-between text-sm text-gray-700">
+            <p className="font-medium flex items-center gap-2"><CardIcon className="w-5" /> Pay with card</p>
+            <p className="flex items-center gap-1 text-xs text-gray-500"><LockIcon className="w-3.5" /> Secure payment</p>
+          </div>
+          <input
+            className="border border-gray-300 rounded py-1.5 px-3.5 w-full"
+            placeholder="Name on card"
+            autoComplete="off"
+            value={card.name}
+            onChange={(e) => setCard({ ...card, name: e.target.value })}
+          />
+          <input
+            className="border border-gray-300 rounded py-1.5 px-3.5 w-full"
+            placeholder="Card number"
+            autoComplete="off"
+            inputMode="numeric"
+            value={card.number}
+            onChange={(e) => setCard({ ...card, number: formatNumber(e.target.value) })}
+          />
+          <div className="flex gap-3">
+            <input
+              className="border border-gray-300 rounded py-1.5 px-3.5 w-full"
+              placeholder="MM/YY"
+              autoComplete="off"
+              inputMode="numeric"
+              value={card.expiry}
+              onChange={(e) => setCard({ ...card, expiry: formatExpiry(e.target.value) })}
+            />
+            <input
+              className="border border-gray-300 rounded py-1.5 px-3.5 w-full"
+              placeholder="CVC"
+              autoComplete="off"
+              inputMode="numeric"
+              maxLength={4}
+              value={card.cvc}
+              onChange={(e) => setCard({ ...card, cvc: digitsOnly(e.target.value) })}
+            />
+          </div>
+        </div>
+        <p className="text-xs text-gray-500 -mt-4">Test mode: no real card is charged. Use 4242 4242 4242 4242 to be approved or 4000 0000 0000 0002 to be declined, with any future expiry and any CVC.</p>
       </div>
 
       {/* Order summary */}

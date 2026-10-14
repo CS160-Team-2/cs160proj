@@ -38,3 +38,18 @@ export const TrashIcon = ({ className }) => (
     <path d="M10 11v6M14 11v6" />
   </svg>
 )
+
+export const CardIcon = ({ className }) => (
+  <svg {...base} className={className} aria-hidden="true">
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+    <path d="M3 10h18" />
+    <path d="M7 15h3" />
+  </svg>
+)
+
+export const LockIcon = ({ className }) => (
+  <svg {...base} className={className} aria-hidden="true">
+    <rect x="5" y="11" width="14" height="9" rx="2" />
+    <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+  </svg>
+)

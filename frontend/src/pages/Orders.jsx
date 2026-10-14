@@ -26,6 +26,7 @@ const useCustomer = () => {
 // /orders: the customer's order history
 export const OrderHistory = () => {
 
+  const { state } = useLocation()
   const { currency } = useContext(StoreContext)
   const { ready, redirect } = useCustomer()
   const [orders, setOrders] = useState(null)
@@ -33,13 +34,25 @@ export const OrderHistory = () => {
 
   useEffect(() => {
     if (!ready) return
-    api('/api/orders').then((data) => setOrders(data.orders)).catch((err) => setError(err.message))
+    const load = () => api('/api/orders').then((data) => setOrders(data.orders)).catch((err) => setError(err.message))
+
+    load()
+    const timer = setInterval(load, 15000)
+    return () => clearInterval(timer)
   }, [ready])
 
   if (redirect) return <Navigate to={redirect} replace />
 
   return (
     <div className="border-t-2 pt-14">
+      {state?.justPlaced && (
+        <div className="bg-green-50 border border-green-600 px-5 py-4 mb-8">
+          <p className="font-medium text-green-700">Thank you! Your payment went through and your order has been placed.</p>
+          <p className="text-sm text-gray-600">
+            Your order number is {state.orderNumber}. Follow its status below, or <Link to={`/orders/${state.orderNumber}`} className="text-green-600 underline">open the order</Link> for full tracking.
+          </p>
+        </div>
+      )}
       <div className="text-2xl mb-6">
         <TextContent text1={'MY'} text2={'ORDERS'} />
       </div>
