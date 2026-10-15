@@ -1,4 +1,6 @@
-# T-04: run backend + frontend tests on every pull request
+# t-04: run backend + frontend tests for every pull request
+# githhub runs this file automatically
+
 name: CI
 
 on:
@@ -7,33 +9,41 @@ on:
     branches: [main]
 
 jobs:
+  # backend: flask + pytest
   backend-tests:
     runs-on: ubuntu-latest
+    
+    # connect to the docker test database
     env:
       MYSQL_HOST: 127.0.0.1
       MYSQL_PORT: "3307"
       MYSQL_USER: cs160team2
       MYSQL_PASSWORD: team2_password
+    
     steps:
-      - uses: actions/checkout@v4
+      - name: Download the code
+        uses: actions/checkout@v4
 
-      # same Docker test DB as T-03
+      # test database from t-03 
       - name: Start MySQL test database
         run: docker compose -f backend/docker/mysql/compose.yaml up -d --wait
 
-      - uses: actions/setup-python@v5
+      - name: Install Python 3.12
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
+          cache: pip            
 
-      - name: Install dependencies
+      - name: Install Python packages
         run: pip install -r requirements.txt
 
-      - name: Run pytest
+      # run all backend tests and create coverage report
+      - name: Run backend tests
         working-directory: backend
         run: pytest -q --cov-report=term --cov-report=xml:coverage.xml --cov-report=html:htmlcov
 
-      - name: Upload backend coverage
+      # save the report even if tests fail so we can see what wrong
+      - name: Save backend coverage report
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -43,33 +53,42 @@ jobs:
             backend/htmlcov/
           if-no-files-found: warn
 
+  # -----------frontend tests (react + vitest)----------------
   frontend-tests:
     runs-on: ubuntu-latest
+
     defaults:
       run:
         working-directory: frontend
-    steps:
-      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+    steps:
+      - name: Download the code
+        uses: actions/checkout@v4
+
+      - name: Install Node 24
+        uses: actions/setup-node@v4
         with:
-          node-version: "20"
-          cache: npm
+          node-version: "24"
+          cache: npm            
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install dependencies
+      # install the exact ver listed in package-lock.json
+      - name: Install npm packages
         run: npm ci
 
-      - name: Run Vitest with coverage
+      # run all frontend tests and create a coverage report
+      - name: Run frontend tests
         run: npm run coverage
 
-      - name: Build
+      # check that the app still build without errors
+      - name: Build the app
         run: npm run build
 
-      - name: Upload frontend coverage
+      # save the report even if tests fail so we can see what wrong
+      - name: Save frontend coverage report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: frontend-coverage
           path: frontend/coverage/
-          if-no-files-found: warn
+          if-no-files-found: warn    
