@@ -88,7 +88,7 @@ function renderCheckout(overrides = {}) {
             element={<p>Sign in to continue</p>}
           />
           <Route
-            path="/orders/OFS-TEST001"
+            path="/orders"
             element={<p>Order confirmation</p>}
           />
         </Routes>
@@ -106,6 +106,14 @@ async function readyButton() {
 
   await waitFor(() => expect(button).toBeEnabled())
   return button
+}
+
+async function fillCard(user, number = '4242 4242 4242 4242') 
+{
+  await user.type(screen.getByPlaceholderText('Name on card'), 'Anna Rivera')
+  await user.type(screen.getByPlaceholderText('Card number'), number)
+  await user.type(screen.getByPlaceholderText('MM/YY'), '12/30')
+  await user.type(screen.getByPlaceholderText('CVC'), '123')
 }
 
 describe('Checkout', () => {
@@ -280,7 +288,9 @@ describe('Checkout', () => {
   test('successful checkout refreshes data and opens the order confirmation', async () => {
     const user = userEvent.setup()
     const context = renderCheckout()
+    await readyButton()
 
+    await fillCard(user)
     await user.click(await readyButton())
 
     expect(
@@ -305,11 +315,8 @@ describe('Checkout', () => {
     const context = renderCheckout()
     await readyButton()
 
-    await user.selectOptions(
-      screen.getByRole('combobox'),
-      'tok_declined'
-    )
-
+    // declined test card
+    await fillCard(user, '4000 0000 0000 0002')
     await user.click(await readyButton())
 
     expect(
@@ -320,11 +327,10 @@ describe('Checkout', () => {
     expect(context.reloadProducts).not.toHaveBeenCalled()
     expect(screen.getByText('1 x Apple')).toBeInTheDocument()
 
-    await user.selectOptions(
-      screen.getByRole('combobox'),
-      'tok_visa'
-    )
-
+    // retry with an approved card; name, expiry and CVC stay filled in
+    const cardNumber = screen.getByPlaceholderText('Card number')
+    await user.clear(cardNumber)
+    await user.type(cardNumber, '4242 4242 4242 4242')
     await user.click(await readyButton())
 
     expect(
@@ -338,9 +344,7 @@ describe('Checkout', () => {
     expect(orders).toHaveLength(2)
     expect(orders[0][1].body.payment_token).toBe('tok_declined')
     expect(orders[1][1].body.payment_token).toBe('tok_visa')
-
-    expect(orders[1][1].body.idempotency_key).toBe(
-      orders[0][1].body.idempotency_key
-    )
+    // same checkout key on retry, so the backend can never charge twice
+    expect(orders[1][1].body.idempotency_key).toBe(orders[0][1].body.idempotency_key)
   })
 })
