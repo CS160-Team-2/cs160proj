@@ -120,13 +120,22 @@ Check if it is running:
 docker compose -f backend/docker/mysql/compose.yaml ps
 ```
 
+Run the backend tests against it. Activate the venv first, wait until the status shows `(healthy)`, then run:
+
+```bash
+cd backend
+MYSQL_PORT=3307 pytest -q
+```
+
+`MYSQL_PORT=3307` points the tests at the Docker database instead of your local MySQL on 3306. pytest creates and drops its own `ofs_test` database on every run
+
 Stop the database when you are done:
 
 ```bash
 docker compose -f backend/docker/mysql/compose.yaml down
 ```
 
-The test database includes six products with different weights to test the 20 lb delivery limit and the 200 lb vehicle capacity.
+The test database includes six products with different weights to test the 20 lb delivery limit and the 200 lb vehicle capacity
 
 To reset the test database and reload the schema and test data, run:
 
@@ -135,7 +144,7 @@ docker compose -f backend/docker/mysql/compose.yaml down -v
 docker compose -f backend/docker/mysql/compose.yaml up -d
 ```
 
-**Note:** The `down -v` command deletes the Docker test database data. It does not delete local MySQL database
+**Note:** `down -v` deletes the Docker test database data only. Your local MySQL database is not affected
 
 ---
 
