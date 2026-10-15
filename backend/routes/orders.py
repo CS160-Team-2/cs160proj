@@ -21,7 +21,9 @@ Placing an order, POST /api/orders with
   4. If the card is declined, nothing is written except a record of the
      declined attempt, and the cart is left exactly as it was.
   5. If anything fails after the card was charged, the transaction rolls
-     back and the charge is refunded.
+     back and the charge is refunded. If the refund itself fails, the
+     charge is recorded as approved with no order and a note, for staff
+     to refund by hand.
 
 Because the stock rows stay locked from the check until the commit, two
 customers cannot both buy the last unit: the second one waits, then
@@ -249,7 +251,7 @@ def place_order():
             totals = rules.price_lines(lines)
 
             try:
-                charge = gateway.charge(totals["grand_total"], token)
+                charge = gateway.charge(totals["grand_total"], token, idempotency_key=key)
             except payments.PaymentGatewayError:
                 raise ApiError("We could not reach the payment service. You have not been "
                                "charged; please try again.", 502, "PAYMENT_UNAVAILABLE") from None
@@ -311,8 +313,13 @@ def place_order():
 
     except Exception as exc:
         if charge is not None and charge.approved:
-            gateway.refund(charge.gateway_ref)
-            _record_payment(user_id, key, totals["grand_total"], "refunded", charge)
+            if gateway.refund(charge.gateway_ref):
+                _record_payment(user_id, key, totals["grand_total"], "refunded", charge)
+            else:
+                # Still charged, with no order. Recorded as approved and not
+                # linked to an order, so staff can find it and refund by hand.
+                charge.decline_reason = "Order failed and the automatic refund did not go through"
+                _record_payment(user_id, key, totals["grand_total"], "approved", charge)
         if isinstance(exc, IntegrityError):
             twin = _order_by_key(user_id, key)
             if twin:

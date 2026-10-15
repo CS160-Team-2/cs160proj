@@ -124,6 +124,18 @@ def test_a_failure_after_charging_refunds_the_card(customer, monkeypatch):
     assert database.query_one("SELECT status FROM payments")["status"] == "refunded"
 
 
+def test_a_refund_that_fails_is_left_for_staff_to_find(customer, monkeypatch):
+    monkeypatch.setattr(payments.gateway(), "refund", lambda gateway_ref: False)
+    monkeypatch.setattr("routes.cart.clear", lambda cur, user_id: 1 / 0)
+
+    response = buy(customer, {APPLES_ID: 1})
+
+    assert response.status_code == 500
+    payment = database.query_one("SELECT status, order_id, failure_reason FROM payments")
+    assert payment["status"] == "approved" and payment["order_id"] is None
+    assert "refund did not go through" in payment["failure_reason"]
+
+
 def test_stock_that_ran_out_since_adding_to_cart_blocks_checkout(customer):
     product_id = make_product(stock=2)
     customer.post("/api/cart/items", json={"product_id": product_id, "quantity": 2})

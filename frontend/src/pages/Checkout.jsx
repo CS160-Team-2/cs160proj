@@ -4,13 +4,14 @@ import { StoreContext } from '../context/StoreContext'
 import { api } from '../api'
 import TextContent from '../components/TextContent'
 
-// The payment gateway is the backend's test fake for now, so instead of a
-// card form the customer picks a test card. A real gateway would replace
-// this with its own card field, which hands the page a token like these.
+// Instead of a card form the customer picks a test card. These tokens work
+// with both backend gateways: the offline fake, and Stripe in test mode.
+// Taking real cards would replace this with Stripe's own card field, which
+// hands the page a token (pm_...) to send the same way.
 const testCards = [
   { token: 'tok_visa', label: 'Test Visa ending 4242 (approved)' },
   { token: 'tok_mastercard', label: 'Test Mastercard ending 4444 (approved)' },
-  { token: 'tok_declined', label: 'Test card that is declined' },
+  { token: 'tok_chargeDeclined', label: 'Test card that is declined' },
 ]
 
 const emptyAddress = { street: '', city: '', state: 'CA', zip_code: '' }
