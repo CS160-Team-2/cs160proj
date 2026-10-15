@@ -1,0 +1,75 @@
+# T-04: run backend + frontend tests on every pull request
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    env:
+      MYSQL_HOST: 127.0.0.1
+      MYSQL_PORT: "3307"
+      MYSQL_USER: cs160team2
+      MYSQL_PASSWORD: team2_password
+    steps:
+      - uses: actions/checkout@v4
+
+      # same Docker test DB as T-03
+      - name: Start MySQL test database
+        run: docker compose -f backend/docker/mysql/compose.yaml up -d --wait
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run pytest
+        working-directory: backend
+        run: pytest -q --cov-report=term --cov-report=xml:coverage.xml --cov-report=html:htmlcov
+
+      - name: Upload backend coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: |
+            backend/coverage.xml
+            backend/htmlcov/
+          if-no-files-found: warn
+
+  frontend-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Vitest with coverage
+        run: npm run coverage
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload frontend coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: frontend/coverage/
+          if-no-files-found: warn
