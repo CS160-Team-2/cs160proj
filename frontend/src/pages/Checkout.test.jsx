@@ -51,6 +51,10 @@ function mockApi({
       return { addresses: [address] }
     }
 
+    if (path === '/api/checkout/estimate') {
+      return preview
+    }
+
     if (path === '/api/checkout/preview') {
       if (pendingPreview) return new Promise(() => {})
       if (previewError) throw new Error(previewError)
@@ -122,14 +126,48 @@ describe('Checkout', () => {
     mockApi()
   })
 
-  test('redirects signed-out visitors to sign in', async () => {
-    renderCheckout({ user: null })
+  test('signed-out visitors get the guest checkout form', async () => {
+    renderCheckout({ user: null, guestCheckout: vi.fn() })
+    await readyButton()
+
+    expect(screen.queryByText('Sign in to continue')).not.toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Email address')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Street address')).toBeInTheDocument()
+    expect(screen.getByText('$2.75')).toBeInTheDocument()
+
+    expect(api).toHaveBeenCalledWith('/api/checkout/estimate')
+    expect(api).not.toHaveBeenCalledWith('/api/users/me/addresses')
+  })
+
+  test('a guest can place an order without signing in', async () => {
+    const user = userEvent.setup()
+    const guestCheckout = vi.fn().mockResolvedValue({ address: { address_id: 7 } })
+    renderCheckout({ user: null, guestCheckout })
+    await readyButton()
+
+    await user.type(screen.getByPlaceholderText('First name'), 'Anna')
+    await user.type(screen.getByPlaceholderText('Last name'), 'Rivera')
+    await user.type(screen.getByPlaceholderText('Email address'), 'anna@example.com')
+    await user.type(screen.getByPlaceholderText('Phone number'), '408 555 0123')
+    await user.type(screen.getByPlaceholderText('Street address'), '1 Washington Sq')
+    await user.type(screen.getByPlaceholderText('City'), 'San Jose')
+    await user.type(screen.getByPlaceholderText('ZIP'), '95192')
+    await fillCard(user)
+    await user.click(await readyButton())
 
     expect(
-      await screen.findByText('Sign in to continue')
+      await screen.findByText('Order confirmation')
     ).toBeInTheDocument()
 
-    expect(api).not.toHaveBeenCalled()
+    expect(guestCheckout).toHaveBeenCalledWith(
+      { first_name: 'Anna', last_name: 'Rivera', email: 'anna@example.com', phone: '408 555 0123' },
+      { street: '1 Washington Sq', city: 'San Jose', state: 'CA', zip_code: '95192' },
+    )
+
+    expect(api).toHaveBeenCalledWith('/api/orders', {
+      method: 'POST',
+      body: expect.objectContaining({ address_id: 7, payment_token: 'tok_visa' }),
+    })
   })
 
   test('staff accounts cannot place orders', () => {
