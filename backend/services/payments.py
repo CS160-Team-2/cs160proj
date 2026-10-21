@@ -207,7 +207,10 @@ class StripePaymentGateway:
             ("amount", cents),
             ("currency", self.currency),
             ("confirm", "true"),
-            ("payment_method_types[]", "card"),
+            # Stripe picks payment methods from the dashboard settings now.
+            # No redirects, since OFS confirms on the server with no return page.
+            ("automatic_payment_methods[enabled]", "true"),
+            ("automatic_payment_methods[allow_redirects]", "never"),
             ("expand[]", "payment_method"),
             ("metadata[ofs_checkout_key]", idempotency_key or ""),
         ]
