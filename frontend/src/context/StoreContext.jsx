@@ -70,6 +70,13 @@ const StoreContextProvider = (props) => {
     const register = (fullName, email, password) =>
         startSession('/api/auth/register', { full_name: fullName, email, password })
 
+    const guestCheckout = async (contact, address) => {
+        const data = await api('/api/checkout/guest', { method: 'POST', body: { contact, address } })
+        setUser(data.user)
+        await loadCart()
+        return data
+    }
+
     const signOut = async () => {
         await api('/api/auth/logout', { method: 'POST' }).catch(() => {})
         setUser(null)
@@ -109,6 +116,7 @@ const StoreContextProvider = (props) => {
         user,
         signIn,
         register,
+        guestCheckout,
         signOut,
         cart,
         cartItems: cart.items.map(withImage),

@@ -42,26 +42,33 @@ const NavigationBar = () => {
       </ul>
 
       <div className="flex items-center gap-5 text-white">
-        {user ? (
-          <div className="relative">
-            <button onClick={() => setMenuOpen(!menuOpen)} aria-label="Account menu" aria-expanded={menuOpen} className="cursor-pointer flex">
-              <ProfileIcon className="w-8" />
-            </button>
-            {menuOpen && (
-              <div className="absolute right-0 mt-2 w-44 bg-white text-gray-700 text-sm shadow-md flex flex-col py-2">
-                <p className="px-4 py-1 text-xs text-gray-500 truncate">{user.full_name}</p>
-                {user.role === 'customer' && (
-                  <Link to="/orders" onClick={() => setMenuOpen(false)} className="px-4 py-2 hover:bg-gray-100">My orders</Link>
-                )}
-                <button onClick={handleSignOut} className="px-4 py-2 text-left hover:bg-gray-100 cursor-pointer">Sign out</button>
-              </div>
-            )}
-          </div>
-        ) : (
-          <Link to="/login" aria-label="Sign in">
+        <div className="relative">
+          <button onClick={() => setMenuOpen(!menuOpen)} aria-label="Account menu" aria-expanded={menuOpen} className="cursor-pointer flex">
             <ProfileIcon className="w-8" />
-          </Link>
-        )}
+          </button>
+          {menuOpen && (
+            <div className="absolute right-0 mt-2 w-44 bg-white text-gray-700 text-sm shadow-md flex flex-col py-2">
+              {user ? (
+                <>
+                  <p className="px-4 py-1 text-xs text-gray-500 truncate">{user.full_name}</p>
+                  {user.role === 'customer' && (
+                    <Link to="/orders" onClick={() => setMenuOpen(false)} className="px-4 py-2 hover:bg-gray-100">My orders</Link>
+                  )}
+                  {(user.role === 'employee' || user.role === 'manager') && (
+                    <Link to="/inventory" onClick={() => setMenuOpen(false)} className="px-4 py-2 hover:bg-gray-100">Inventory</Link>
+                  )}
+                  <button onClick={handleSignOut} className="px-4 py-2 text-left hover:bg-gray-100 cursor-pointer">Sign out</button>
+                </>
+              ) : (
+                <>
+                  <p className="px-4 py-1 text-xs text-gray-500 truncate">Guest</p>
+                  <Link to="/track-order" onClick={() => setMenuOpen(false)} className="px-4 py-2 hover:bg-gray-100">Track orders</Link>
+                  <Link to="/login" onClick={() => setMenuOpen(false)} className="px-4 py-2 hover:bg-gray-100">Sign in</Link>
+                </>
+              )}
+            </div>
+          )}
+        </div>
 
         <Link to="/cart" className="relative">
           <ShoppingCartIcon className="w-8" />

@@ -48,6 +48,8 @@ CREATE TABLE users (
   phone         VARCHAR(30)  NULL,
   role          ENUM('customer','employee','manager') NOT NULL DEFAULT 'customer',
   is_active     BOOLEAN  NOT NULL DEFAULT TRUE,   -- staff are deactivated, never deleted
+  is_guest      BOOLEAN  NOT NULL DEFAULT FALSE,  -- checked out without an account
+  contact_email VARCHAR(255) NULL,                -- the guest's real email; email holds a private placeholder
   created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
@@ -107,7 +109,11 @@ CREATE TABLE inventory_log (
   reason       VARCHAR(255) NOT NULL,
   created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (product_id) REFERENCES products(product_id),
-  FOREIGN KEY (changed_by) REFERENCES users(user_id)
+  FOREIGN KEY (changed_by) REFERENCES users(user_id),
+  CHECK (old_quantity >= 0),
+  CHECK (new_quantity >= 0),
+  CHECK (change_qty = new_quantity - old_quantity),
+  INDEX inventory_log_product (product_id, log_id)
 ) ENGINE=InnoDB;
 
 

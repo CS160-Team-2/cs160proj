@@ -124,7 +124,7 @@ def current_user():
     user_id = session.get("user_id")
     if user_id is not None:
         user = db.query_one(
-            "SELECT user_id, email, full_name, phone, role, is_active "
+            "SELECT user_id, email, full_name, phone, role, is_active, is_guest, contact_email "
             "FROM users WHERE user_id = %s",
             (user_id,),
         )
@@ -150,9 +150,11 @@ def require_role(*roles):
 
 
 def user_json(user):
+    is_guest = bool(user.get("is_guest"))
     return {
         "user_id": user["user_id"],
-        "email": user["email"],
+        "email": user.get("contact_email") if is_guest else user["email"],
+        "is_guest": is_guest,
         "full_name": user["full_name"],
         "phone": user.get("phone"),
         "role": user["role"],

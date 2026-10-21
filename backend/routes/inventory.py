@@ -18,6 +18,8 @@ when and why. A change that would leave stock below zero is refused.
 There is no publish step: a saved change shows in the shop immediately.
 """
 
+from decimal import Decimal, ROUND_HALF_UP
+
 from flask import Blueprint, request
 
 import db
@@ -25,6 +27,11 @@ from common import (STAFF, ApiError, body, current_user, ok, optional_text,
                     require_decimal, require_int, require_role, require_text)
 
 inventory_bp = Blueprint("inventory", __name__)
+
+# Limits from schema.sql: DECIMAL(10,2), DECIMAL(8,2), and signed INT.
+MAX_PRICE = Decimal("99999999.99")
+MAX_WEIGHT = Decimal("2000.00")  # realistically, no product should weigh more than 2000 lbs
+MAX_INVENTORY_INT = 2147483647
 
 AVAILABILITY_FILTERS = {
     "available": "p.is_listed = TRUE AND i.quantity_in_stock > 0",
@@ -70,14 +77,31 @@ def _price(data):
     price = require_decimal(data, "price")
     if price < 0:
         raise ApiError("Price cannot be negative", code="INVALID_PRICE")
-    return price
+    if price > MAX_PRICE:
+        raise ApiError(f"Price cannot exceed {MAX_PRICE}", code="INVALID_PRICE")
+    return price.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 def _weight(data):
     weight = require_decimal(data, "unit_weight_lb")
     if weight <= 0:
         raise ApiError("Weight must be greater than zero", code="INVALID_WEIGHT")
+    if weight > MAX_WEIGHT:
+        raise ApiError(f"Weight cannot exceed {MAX_WEIGHT}", code="INVALID_WEIGHT")
+    weight = weight.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    if weight == 0:
+        raise ApiError("Weight must round to at least 0.01 lb", code="INVALID_WEIGHT")
     return weight
+
+
+def _inventory_int(data, field, minimum=None):
+    try:
+        number = require_int(data, field, minimum=minimum)
+    except OverflowError:
+        raise ApiError(f"{field} must be a whole number") from None
+    if not -MAX_INVENTORY_INT - 1 <= number <= MAX_INVENTORY_INT:
+        raise ApiError(f"{field} is outside the supported integer range")
+    return number
 
 
 # =====================================================================
@@ -96,8 +120,8 @@ def add_product():
     description = optional_text(data, "description", 2000)
     category = optional_text(data, "category", 60) or "Other"
     image_key = optional_text(data, "image_key", 100)
-    stock = require_int(data, "initial_stock", minimum=0) if "initial_stock" in data else 0
-    threshold = (require_int(data, "low_stock_threshold", minimum=0)
+    stock = _inventory_int(data, "initial_stock", minimum=0) if "initial_stock" in data else 0
+    threshold = (_inventory_int(data, "low_stock_threshold", minimum=0)
                  if "low_stock_threshold" in data else 5)
 
     with db.transaction() as cur:
@@ -228,13 +252,16 @@ def adjust_stock(product_id):
         old = cur.fetchone()["quantity_in_stock"]
 
         if "delta" in data:
-            delta = require_int(data, "delta")
+            delta = _inventory_int(data, "delta")
             if delta == 0:
                 raise ApiError("delta cannot be zero")
             reason = require_text(data, "reason", 255)
             if old + delta < 0:
                 raise ApiError(f"Stock cannot go below zero: there are only {old} in stock",
                                409, "NEGATIVE_STOCK", stock=old)
+            if old + delta > MAX_INVENTORY_INT:
+                raise ApiError(f"Stock cannot exceed {MAX_INVENTORY_INT}",
+                               409, "STOCK_LIMIT", stock=old)
             cur.execute(
                 "UPDATE inventory SET quantity_in_stock = %s WHERE product_id = %s",
                 (old + delta, product_id),
@@ -246,7 +273,7 @@ def adjust_stock(product_id):
             )
 
         if "low_stock_threshold" in data:
-            threshold = require_int(data, "low_stock_threshold", minimum=0)
+            threshold = _inventory_int(data, "low_stock_threshold", minimum=0)
             cur.execute(
                 "UPDATE inventory SET low_stock_threshold = %s WHERE product_id = %s",
                 (threshold, product_id),

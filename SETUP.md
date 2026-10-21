@@ -104,6 +104,48 @@ and a grid of three products. In the left *Navigator* panel, click the **refresh
 
 > ⚠️ Re-running `schema.sql` **drops and recreates** the database. That is intended for a spike. Do not develop this habit on the real project database.
 
+**2.4 Docker MySQL Test Database**
+
+This Docker database is for testing. It runs separately from your local MySQL database, so the test data will not affect your local database.
+
+Start the database from the project root:
+
+```bash
+docker compose -f backend/docker/mysql/compose.yaml up -d
+```
+
+Check if it is running:
+
+```bash
+docker compose -f backend/docker/mysql/compose.yaml ps
+```
+
+Run the backend tests against it. Activate the venv first, wait until the status shows `(healthy)`, then run:
+
+```bash
+cd backend
+MYSQL_PORT=3307 pytest -q
+```
+
+`MYSQL_PORT=3307` points the tests at the Docker database instead of your local MySQL on 3306. pytest creates and drops its own `ofs_test` database on every run
+
+Stop the database when you are done:
+
+```bash
+docker compose -f backend/docker/mysql/compose.yaml down
+```
+
+The test database includes six products with different weights to test the 20 lb delivery limit and the 200 lb vehicle capacity
+
+To reset the test database and reload the schema and test data, run:
+
+```bash
+docker compose -f backend/docker/mysql/compose.yaml down -v
+docker compose -f backend/docker/mysql/compose.yaml up -d
+```
+
+**Note:** `down -v` deletes the Docker test database data only. Your local MySQL database is not affected
+
 ---
 
 ## Part 3 — Set up the backend

@@ -1,0 +1,25 @@
+services:
+  mysql-test:
+    image: mysql:8.0.46
+    container_name: ofs-mysql-test
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: team2_password
+      MYSQL_DATABASE: ofs
+      MYSQL_USER: cs160team2
+      MYSQL_PASSWORD: team2_password
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_test_data:/var/lib/mysql
+      - ../../schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./02-user-grants.sql:/docker-entrypoint-initdb.d/02-user-grants.sql:ro
+      - ./03-test-seed.sql:/docker-entrypoint-initdb.d/03-test-seed.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-pteam2_password"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  mysql_test_data:
