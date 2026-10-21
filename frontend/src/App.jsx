@@ -11,6 +11,7 @@ import NavigationBar from './components/NavigationBar'
 import Footer from './components/Footer'
 import { StoreContext } from './context/StoreContext'
 import Inventory from './pages/Inventory'
+import TrackOrder from './pages/TrackOrder'
 
 const App = () => {
 
@@ -37,6 +38,7 @@ const App = () => {
         <Route path="/login" element={<Login />} />
         <Route path="/checkout" element={<Checkout />} />
         <Route path="/orders" element={<OrderHistory />} />
+        <Route path="/track-order" element={<TrackOrder />} />
         <Route path="/orders/:orderNumber" element={<OrderDetail />} />
         <Route path="/inventory" element={<Inventory />} />
       </Routes>

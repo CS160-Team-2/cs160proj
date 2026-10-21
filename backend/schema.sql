@@ -48,6 +48,8 @@ CREATE TABLE users (
   phone         VARCHAR(30)  NULL,
   role          ENUM('customer','employee','manager') NOT NULL DEFAULT 'customer',
   is_active     BOOLEAN  NOT NULL DEFAULT TRUE,   -- staff are deactivated, never deleted
+  is_guest      BOOLEAN  NOT NULL DEFAULT FALSE,  -- checked out without an account
+  contact_email VARCHAR(255) NULL,                -- the guest's real email; email holds a private placeholder
   created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 

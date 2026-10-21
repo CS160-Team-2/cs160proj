@@ -71,8 +71,8 @@ def _create_user(email, password, full_name, role, phone=None):
 
 def _load_user(user_id):
     return db.query_one(
-        "SELECT user_id, email, full_name, phone, role, is_active, created_at "
-        "FROM users WHERE user_id = %s",
+        "SELECT user_id, email, full_name, phone, role, is_active, is_guest, contact_email, "
+        "       created_at FROM users WHERE user_id = %s",
         (user_id,),
     )
 

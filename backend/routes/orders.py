@@ -345,10 +345,7 @@ def my_order(order_number):
     return ok(order=order_detail(_own_order(order_number)))
 
 
-@orders_bp.get("/api/orders/<order_number>/tracking")
-@require_role(*CUSTOMER)
-def tracking(order_number):
-    order = _own_order(order_number)
+def tracking_payload(order):
     history = status_history(order["order_id"])
     reached = {h["to_status"]: h["changed_at"] for h in history}
 
@@ -362,12 +359,18 @@ def tracking(order_number):
     # An arrival estimate only exists once the order is on a trip with a route.
     estimate = stop["est_arrival"] if stop and stop["route_planned_at"] else None
 
-    return ok(
-        order_number=order["order_number"],
-        status=order["status"],
-        steps=[{"status": s, "reached_at": reached.get(s), "done": s in reached}
-               for s in rules.ORDER_STATUSES],
-        history=[{"status": h["to_status"], "at": h["changed_at"]} for h in history],
-        estimated_arrival=estimate if order["status"] != "delivered" else None,
-        delivered_at=order["delivered_at"],
-    )
+    return {
+        "order_number": order["order_number"],
+        "status": order["status"],
+        "steps": [{"status": s, "reached_at": reached.get(s), "done": s in reached}
+                  for s in rules.ORDER_STATUSES],
+        "history": [{"status": h["to_status"], "at": h["changed_at"]} for h in history],
+        "estimated_arrival": estimate if order["status"] != "delivered" else None,
+        "delivered_at": order["delivered_at"],
+    }
+
+
+@orders_bp.get("/api/orders/<order_number>/tracking")
+@require_role(*CUSTOMER)
+def tracking(order_number):
+    return ok(**tracking_payload(_own_order(order_number)))

@@ -1,5 +1,5 @@
 import React, { useContext, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { StoreContext } from '../context/StoreContext'
 import TextContent from '../components/TextContent'
 
@@ -87,6 +87,10 @@ const Login = () => {
           {creating ? 'Already have an account? Sign in' : 'New here? Create an account'}
         </button>
       </div>
+
+      <p className="w-full text-sm text-gray-600 text-center">
+        Ordered as a guest? <Link to="/track-order" className="text-green-600 underline">Track your order</Link>
+      </p>
 
       <button
         type="submit"

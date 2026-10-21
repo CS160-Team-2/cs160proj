@@ -1,5 +1,5 @@
 import React, { useContext, useEffect, useRef, useState } from 'react'
-import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { StoreContext } from '../context/StoreContext'
 import { api } from '../api'
 import TextContent from '../components/TextContent'
@@ -55,19 +55,49 @@ const cardToken = (card) => {
 }
 
 const emptyAddress = { street: '', city: '', state: 'CA', zip_code: '' }
+const emptyContact = { first_name: '', last_name: '', email: '', phone: '' }
+const guestKey = 'ofs_guest_checkout'
+
+const loadGuest = () => {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(guestKey))
+    return { contact: { ...emptyContact, ...saved.contact }, address: { ...emptyAddress, ...saved.address } }
+  } catch {
+    return { contact: emptyContact, address: emptyAddress }
+  }
+}
+
+const saveGuest = (contact, address) => {
+  try {
+    sessionStorage.setItem(guestKey, JSON.stringify({ contact, address }))
+  } catch {
+    return
+  }
+}
+
+const clearGuest = () => {
+  try {
+    sessionStorage.removeItem(guestKey)
+  } catch {
+    return
+  }
+}
 
 const Checkout = () => {
 
-  const { user, currency, cart, reloadCart, reloadProducts } = useContext(StoreContext)
+  const { user, currency, cart, reloadCart, reloadProducts, guestCheckout } = useContext(StoreContext)
   const navigate = useNavigate()
 
   const [addresses, setAddresses] = useState([])
   const [addressId, setAddressId] = useState(null)
   const [showNewAddress, setShowNewAddress] = useState(false)
-  const [newAddress, setNewAddress] = useState(emptyAddress)
+  const [saved] = useState(loadGuest)
+  const [contact, setContact] = useState(saved.contact)
+  const [newAddress, setNewAddress] = useState(saved.address)
   const [addressError, setAddressError] = useState('')
 
   const [preview, setPreview] = useState(null)
+  const [estimate, setEstimate] = useState(null)
   const [previewError, setPreviewError] = useState('')
   const [card, setCard] = useState(emptyCard)
   const [placing, setPlacing] = useState(false)
@@ -78,6 +108,27 @@ const Checkout = () => {
   const checkoutKey = useRef(crypto.randomUUID())
 
   const isCustomer = user && user.role === 'customer'
+  const isGuest = user === null
+
+  useEffect(() => {
+    if (isGuest) saveGuest(contact, newAddress)
+  }, [isGuest, contact, newAddress])
+
+  useEffect(() => {
+    if (!isGuest || cart.items.length === 0) {
+      setEstimate(null)
+      return
+    }
+    api('/api/checkout/estimate')
+      .then((data) => {
+        setEstimate(data)
+        setPreviewError('')
+      })
+      .catch((err) => {
+        setEstimate(null)
+        setPreviewError(err.message)
+      })
+  }, [isGuest, cart])
 
   useEffect(() => {
     if (!isCustomer) return
@@ -107,8 +158,7 @@ const Checkout = () => {
   }, [addressId, cart])
 
   if (user === undefined) return null
-  if (!user) return <Navigate to="/login?next=/checkout" replace />
-  if (!isCustomer) return <p className="pt-14 text-center text-gray-600">Staff accounts cannot place orders.</p>
+  if (user && !isCustomer) return <p className="pt-14 text-center text-gray-600">Staff accounts cannot place orders.</p>
 
   if (cart.items.length === 0 && !placing) {
     return (
@@ -133,8 +183,17 @@ const Checkout = () => {
     }
   }
 
+  const guestProblem = () => {
+    if (!contact.first_name.trim() || !contact.last_name.trim()) return 'Enter your first and last name.'
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(contact.email.trim())) return 'Enter a valid email address.'
+    if (digitsOnly(contact.phone).length < 7) return 'Enter a valid phone number.'
+    if (!newAddress.street.trim() || !newAddress.city.trim() || !newAddress.state.trim()) return 'Enter your full delivery address.'
+    if (!/^\d{5}(-\d{4})?$/.test(newAddress.zip_code.trim())) return 'Enter a 5 digit ZIP code.'
+    return ''
+  }
+
   const placeOrder = async () => {
-    const problem = cardError(card)
+    const problem = (isGuest && guestProblem()) || cardError(card)
     if (problem) {
       setOrderError(problem)
       return
@@ -143,18 +202,38 @@ const Checkout = () => {
     setOrderError('')
     setPlacing(true)
     try {
+      let chosenAddressId = addressId
+      if (isGuest) {
+        const started = await guestCheckout(
+          Object.fromEntries(Object.entries(contact).map(([name, value]) => [name, value.trim()])),
+          Object.fromEntries(Object.entries(newAddress).map(([name, value]) => [name, value.trim()])),
+        )
+        chosenAddressId = started.address.address_id
+      }
       const data = await api('/api/orders', {
         method: 'POST',
-        body: { address_id: addressId, payment_token: cardToken(card), idempotency_key: checkoutKey.current },
+        body: { address_id: chosenAddressId, payment_token: cardToken(card), idempotency_key: checkoutKey.current },
       })
+      clearGuest()
       await Promise.all([reloadCart(), reloadProducts()])
       navigate('/orders', { state: { justPlaced: true, orderNumber: data.order.order_number } })
     } catch (err) {
-      // Declined or out of stock: the cart is unchanged, so they can retry.
       setOrderError(err.message)
       setPlacing(false)
     }
   }
+
+  const contactField = (name, placeholder, extra = {}) => (
+    <input
+      className="border border-gray-300 px-3 py-2 w-full"
+      placeholder={placeholder}
+      value={contact[name]}
+      onChange={(e) => setContact({ ...contact, [name]: e.target.value })}
+      {...extra}
+    />
+  )
+
+  const totals = isGuest ? estimate : preview
 
   const field = (name, placeholder, extra = {}) => (
     <input
@@ -173,8 +252,43 @@ const Checkout = () => {
       {/* Delivery address and payment */}
       <div className="flex flex-col gap-6 w-full lg:max-w-[480px]">
         <div className="text-xl sm:text-2xl">
+          <TextContent text1={'CONTACT'} text2={'INFORMATION'} />
+        </div>
+
+        {isGuest ? (
+          <div className="flex flex-col gap-3 -mt-2">
+            <div className="flex gap-3">
+              {contactField('first_name', 'First name', { autoComplete: 'given-name' })}
+              {contactField('last_name', 'Last name', { autoComplete: 'family-name' })}
+            </div>
+            {contactField('email', 'Email address', { type: 'email', autoComplete: 'email' })}
+            {contactField('phone', 'Phone number', { type: 'tel', autoComplete: 'tel', inputMode: 'tel' })}
+            <p className="text-sm text-gray-600">
+              Have an account? <Link to="/login?next=/checkout" className="text-green-600 underline">Sign in</Link> or create one. Your cart will be waiting right here.
+            </p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1 text-sm text-gray-600 -mt-3">
+            <p>{user.full_name}</p>
+            <p>{user.email}</p>
+            <p>{user.phone || 'No phone number on file'}</p>
+          </div>
+        )}
+
+        <div className="text-xl sm:text-2xl mt-2">
           <TextContent text1={'DELIVERY'} text2={'ADDRESS'} />
         </div>
+
+        {isGuest && (
+          <div className="flex flex-col gap-3 -mt-2">
+            {field('street', 'Street address', { autoComplete: 'street-address' })}
+            <div className="flex gap-3">
+              {field('city', 'City', { autoComplete: 'address-level2' })}
+              {field('state', 'State', { autoComplete: 'address-level1', maxLength: 50 })}
+              {field('zip_code', 'ZIP', { autoComplete: 'postal-code', inputMode: 'numeric' })}
+            </div>
+          </div>
+        )}
 
         {addresses.map((address) => (
           <label key={address.address_id} className={`flex gap-3 border px-4 py-3 cursor-pointer ${addressId === address.address_id ? 'border-green-600' : 'border-gray-300'}`}>
@@ -189,7 +303,7 @@ const Checkout = () => {
           </label>
         ))}
 
-        {showNewAddress ? (
+        {isGuest ? null : showNewAddress ? (
           <form onSubmit={saveAddress} className="flex flex-col gap-3">
             {field('street', 'Street address', { autoComplete: 'street-address' })}
             <div className="flex gap-3">
@@ -271,14 +385,14 @@ const Checkout = () => {
             </div>
           ))}
           <hr />
-          <Row label="Subtotal" value={`${currency}${(preview || cart).subtotal}`} />
-          <Row label="Total weight" value={`${(preview || cart).total_weight_lb} lb`} />
-          <Row label="Delivery fee" value={(preview || cart).delivery_fee === '0.00' ? 'Free' : `${currency}${(preview || cart).delivery_fee}`} />
-          <Row label="Tax" value={preview ? `${currency}${preview.tax}` : 'Choose an address'} />
+          <Row label="Subtotal" value={`${currency}${(totals || cart).subtotal}`} />
+          <Row label="Total weight" value={`${(totals || cart).total_weight_lb} lb`} />
+          <Row label="Delivery fee" value={(totals || cart).delivery_fee === '0.00' ? 'Free' : `${currency}${(totals || cart).delivery_fee}`} />
+          <Row label="Tax" value={totals ? `${currency}${totals.tax}` : 'Choose an address'} />
           <hr />
           <div className="flex justify-between text-base">
             <b>Total</b>
-            <b>{preview ? `${currency}${preview.grand_total}` : '...'}</b>
+            <b>{totals ? `${currency}${totals.grand_total}` : '...'}</b>
           </div>
         </div>
 
@@ -286,7 +400,7 @@ const Checkout = () => {
 
         <button
           onClick={placeOrder}
-          disabled={!preview || placing}
+          disabled={!totals || placing}
           className="w-full bg-green-600 text-white text-sm mt-8 px-8 py-3 active:bg-green-400 disabled:opacity-50"
         >
           {placing ? 'PLACING ORDER...' : 'PLACE ORDER'}
