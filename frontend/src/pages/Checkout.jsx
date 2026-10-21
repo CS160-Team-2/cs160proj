@@ -10,9 +10,9 @@ const emptyCard = { name: '', number: '', expiry: '', cvc: '' }
 const stripeTestTokens = {
   '4242424242424242': 'tok_visa',
   '5555555555554444': 'tok_mastercard',
-  '4000000000000002': 'tok_declined',
-  '4000000000009995': 'tok_insufficient',
-  '4000000000000069': 'tok_expired',
+  '4000000000000002': 'tok_chargeDeclined',
+  '4000000000009995': 'tok_chargeDeclinedInsufficientFunds',
+  '4000000000000069': 'tok_chargeDeclinedExpiredCard',
 }
 
 const digitsOnly = (value) => value.replace(/\D/g, '')

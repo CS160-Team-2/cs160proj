@@ -58,7 +58,7 @@ function mockApi({
     }
 
     if (path === '/api/orders') {
-      if (options.body.payment_token === 'tok_declined') {
+      if (options.body.payment_token === 'tok_chargeDeclined') {
         throw new Error('Card declined')
       }
       return { order: { order_number: 'OFS-TEST001' } }
@@ -342,7 +342,7 @@ describe('Checkout', () => {
     )
 
     expect(orders).toHaveLength(2)
-    expect(orders[0][1].body.payment_token).toBe('tok_declined')
+    expect(orders[0][1].body.payment_token).toBe('tok_chargeDeclined')
     expect(orders[1][1].body.payment_token).toBe('tok_visa')
     // same checkout key on retry, so the backend can never charge twice
     expect(orders[1][1].body.idempotency_key).toBe(orders[0][1].body.idempotency_key)

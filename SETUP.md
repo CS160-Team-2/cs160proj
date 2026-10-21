@@ -249,6 +249,55 @@ Try **5** apple bags + **20** lemons (17.00 lb) and delivery should be FREE. Try
 
 ---
 
+## Optional: Turn on Stripe test payments
+
+You do not need this to run or test OFS. By default checkout uses a built-in fake payment service that works offline, and the automated tests always use it. Turn on Stripe only when you want payments to go through Stripe's test system and show up in a Stripe dashboard, for example for the demo.
+
+**Test mode only.** A Stripe test key never moves real money. OFS refuses a live key (one starting `sk_live_`) unless you deliberately set `STRIPE_ALLOW_LIVE=1`, which nobody on this project should do.
+
+### 1. Get a test key
+
+Either make your own free account (recommended, so your test payments are only in your dashboard), or ask the team for the shared test key in a private message.
+
+1. Sign up at [stripe.com](https://stripe.com). Test mode needs no business or bank details.
+2. In the dashboard, make sure **Test mode** is switched on.
+3. Go to **Developers → API keys** and copy the **Secret key**. It starts with `sk_test_`.
+
+### 2. Put it in `backend/.env`
+
+```
+PAYMENT_GATEWAY=stripe
+STRIPE_SECRET_KEY=sk_test_...your key...
+```
+
+Then restart Flask. Nothing else changes, and no extra package is needed.
+
+**Never commit the key or paste it into a public channel, an issue, or a pull request.** `.env` is already in `.gitignore`. Do not put it in GitHub secrets either: those are only visible to GitHub's automated checks, which do not need it, and never reach your laptop or the demo server. The demo server gets the key in its own `backend/.env`.
+
+### 3. Try it
+
+Check out in the shop with any future expiry date, any 3 digit security code, and one of these card numbers:
+
+| Card number | What happens |
+|---|---|
+| `4242 4242 4242 4242` | Approved (Visa) |
+| `5555 5555 5555 4444` | Approved (Mastercard) |
+| `4000 0000 0000 0002` | Declined: card declined |
+| `4000 0000 0000 9995` | Declined: insufficient funds |
+| `4000 0000 0000 0069` | Declined: card expired |
+
+The payment, or the declined attempt, appears in the Stripe dashboard under **Payments**. Only these test numbers work with Stripe for now. Any other number is turned down as an invalid card, because the checkout page does not yet use Stripe's own card field.
+
+### If something goes wrong
+
+- **Checkout fails with a server error, and the Flask terminal mentions `STRIPE_SECRET_KEY`:** the key is missing from `.env`, or it is a live key. Flask only checks the key at the first checkout, not when it starts.
+- **Every checkout says it could not reach the payment service:** the key is wrong or was replaced in the dashboard. Copy it again. If that is not it, check your internet connection.
+- **A key leaked:** go to **Developers → API keys** in the Stripe dashboard and roll (replace) it. Because it is a test key, no real money was at risk.
+
+To go back to the offline fake, set `PAYMENT_GATEWAY=fake` and restart Flask.
+
+---
+
 ## Running it again later
 
 Three terminals, every time:
