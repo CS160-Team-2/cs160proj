@@ -30,6 +30,7 @@ customers cannot both buy the last unit: the second one waits, then
 sees the stock is gone.
 """
 
+import json
 import re
 import secrets
 
@@ -41,7 +42,7 @@ import rules
 from common import CUSTOMER, ApiError, body, current_user, ok, require_int, require_role
 from routes import cart as cart_routes
 from routes.addresses import address_json, owned_address
-from services import payments
+from services import mapping, payments
 
 orders_bp = Blueprint("orders", __name__)
 
@@ -357,14 +358,55 @@ def tracking_payload(order):
     reached = {h["to_status"]: h["changed_at"] for h in history}
 
     stop = db.query_one(
-        "SELECT t.trip_id, t.status AS trip_status, t.route_planned_at, "
-        "       o.stop_sequence, o.est_arrival "
+        "SELECT t.trip_id, t.status AS trip_status, t.route_planned_at, t.route_json, "
+        "       t.last_report, t.last_latitude, t.last_longitude, t.last_report_at, "
+        "       o.stop_sequence, o.est_arrival, "
+        "       a.latitude AS destination_latitude, a.longitude AS destination_longitude "
         "FROM trip_orders o JOIN delivery_trips t ON t.trip_id = o.trip_id "
+        "JOIN orders placed ON placed.order_id = o.order_id "
+        "JOIN addresses a ON a.address_id = placed.address_id "
         "WHERE o.order_id = %s",
         (order["order_id"],),
     )
     # An arrival estimate only exists once the order is on a trip with a route.
     estimate = stop["est_arrival"] if stop and stop["route_planned_at"] else None
+
+    tracking_map = None
+    if stop and stop["route_planned_at"] and stop["route_json"]:
+        route = stop["route_json"]
+        if isinstance(route, str):
+            route = json.loads(route)
+        store_values = route.get("store") or {}
+        store = mapping.GeoPoint(
+            store_values.get("latitude"), store_values.get("longitude"))
+        destination = mapping.GeoPoint(
+            stop["destination_latitude"], stop["destination_longitude"])
+        vehicle = None
+        if stop["last_latitude"] is not None and stop["last_longitude"] is not None:
+            vehicle = mapping.GeoPoint(stop["last_latitude"], stop["last_longitude"])
+        route_origin = vehicle or store
+        tracking_map = {
+            "provider": route.get("provider", "unknown"),
+            "trip_status": stop["trip_status"],
+            "store": {
+                "latitude": store.latitude,
+                "longitude": store.longitude,
+            },
+            "destination": {
+                "latitude": destination.latitude,
+                "longitude": destination.longitude,
+            },
+            "vehicle_position": (
+                {
+                    "latitude": vehicle.latitude,
+                    "longitude": vehicle.longitude,
+                }
+                if vehicle else None
+            ),
+            "last_report": stop["last_report"],
+            "last_updated": stop["last_report_at"],
+            "directions_url": mapping.directions_url(route_origin, destination),
+        }
 
     return {
         "order_number": order["order_number"],
@@ -374,6 +416,7 @@ def tracking_payload(order):
         "history": [{"status": h["to_status"], "at": h["changed_at"]} for h in history],
         "estimated_arrival": estimate if order["status"] != "delivered" else None,
         "delivered_at": order["delivered_at"],
+        "map": tracking_map,
     }
 
 

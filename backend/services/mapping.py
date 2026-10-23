@@ -3,7 +3,7 @@
 One interface, three providers, chosen by MAP_PROVIDER in .env:
 
     fake     (default) works offline, same answer every time
-    google   Google Geocoding + Directions APIs   (needs GOOGLE_MAPS_API_KEY)
+    google   Google Geocoding + Routes APIs       (needs GOOGLE_MAPS_API_KEY)
     mapbox   Mapbox Geocoding + Optimization APIs (needs MAPBOX_ACCESS_TOKEN)
 
 Every provider offers the same two calls:
@@ -15,8 +15,9 @@ Every provider offers the same two calls:
 starting and ending at the store, in whatever order is fastest given
 current traffic, and says when it reaches each stop.
 
-The Google and Mapbox adapters have not been run against the live APIs
-yet (backlog T-14). The fake is what the tests and demos use.
+Provider contracts are tested with mocked HTTP responses, so automated tests
+never use quota or require secrets. A live-key smoke test is still required
+before a team demo that selects Google or Mapbox (backlog T-14).
 """
 
 import hashlib
@@ -133,17 +134,48 @@ def _miles(a, b):
 # Real providers
 # =====================================================================
 
-def _get_json(url):
+def _request_json(url, *, payload=None, headers=None):
     try:
-        with urllib.request.urlopen(url, timeout=10) as response:
+        request = urllib.request.Request(
+            url,
+            data=(json.dumps(payload).encode() if payload is not None else None),
+            headers=headers or {},
+            method="POST" if payload is not None else "GET",
+        )
+        with urllib.request.urlopen(request, timeout=10) as response:
             return json.loads(response.read().decode())
     except Exception as exc:                          # noqa: BLE001
         raise MappingError(f"Mapping service request failed: {exc}") from exc
 
 
+def _get_json(url):
+    return _request_json(url)
+
+
+def _duration_seconds(value):
+    """Turn a Google protobuf duration such as ``"12.5s"`` into seconds."""
+    if not isinstance(value, str) or not value.endswith("s"):
+        raise MappingError("Google Routes returned an invalid duration")
+    try:
+        return float(value[:-1])
+    except ValueError:
+        raise MappingError("Google Routes returned an invalid duration") from None
+
+
+def directions_url(origin, destination):
+    """A key-free Google Maps link from one GeoPoint to another."""
+    query = urllib.parse.urlencode({
+        "api": "1",
+        "origin": f"{origin.latitude},{origin.longitude}",
+        "destination": f"{destination.latitude},{destination.longitude}",
+        "travelmode": "driving",
+    })
+    return f"https://www.google.com/maps/dir/?{query}"
+
+
 class GoogleMapProvider:
     GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
-    DIRECTIONS_URL = "https://maps.googleapis.com/maps/api/directions/json"
+    ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes"
 
     def __init__(self, api_key):
         self.api_key = api_key
@@ -163,28 +195,62 @@ class GoogleMapProvider:
         return GeoPoint(_q6(location["lat"]), _q6(location["lng"]))
 
     def route(self, origin, stops):
-        here = f"{origin.latitude},{origin.longitude}"
-        waypoints = "optimize:true|" + "|".join(
-            f"{p.latitude},{p.longitude}" for _, p in stops)
-        query = urllib.parse.urlencode({
-            "origin": here, "destination": here, "waypoints": waypoints,
-            "departure_time": "now",        # makes Google use live traffic
-            "key": self.api_key,
-        })
-        data = _get_json(f"{self.DIRECTIONS_URL}?{query}")
-        if data.get("status") != "OK":
-            raise MappingError(f"Google directions failed: {data.get('status')}")
+        def waypoint(point):
+            return {"location": {"latLng": {
+                "latitude": float(point.latitude),
+                "longitude": float(point.longitude),
+            }}}
 
-        best = data["routes"][0]
-        order = [stops[i][0] for i in best["waypoint_order"]]
-        arrivals, elapsed = {}, 0
-        for key, leg in zip(order, best["legs"]):
-            elapsed += leg.get("duration_in_traffic", leg["duration"])["value"]
-            arrivals[key] = elapsed
+        payload = {
+            "origin": waypoint(origin),
+            "destination": waypoint(origin),
+            "intermediates": [waypoint(point) for _, point in stops],
+            "travelMode": "DRIVE",
+            # Waypoint optimization supports TRAFFIC_AWARE, but not
+            # TRAFFIC_AWARE_OPTIMAL.
+            "routingPreference": "TRAFFIC_AWARE",
+            "optimizeWaypointOrder": True,
+            "polylineQuality": "OVERVIEW",
+            "polylineEncoding": "ENCODED_POLYLINE",
+        }
+        headers = {
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": self.api_key,
+            "X-Goog-FieldMask": (
+                "routes.duration,routes.legs.duration,routes.polyline.encodedPolyline,"
+                "routes.optimizedIntermediateWaypointIndex"
+            ),
+        }
+        data = _request_json(self.ROUTES_URL, payload=payload, headers=headers)
+        routes = data.get("routes") or []
+        if not routes:
+            detail = data.get("error", {}).get("message", "no route returned")
+            raise MappingError(f"Google Routes failed: {detail}")
+
+        best = routes[0]
+        indices = best.get("optimizedIntermediateWaypointIndex")
+        if indices is None:
+            indices = list(range(len(stops)))
+        if sorted(indices) != list(range(len(stops))):
+            raise MappingError("Google Routes returned an invalid waypoint order")
+
+        order = [stops[i][0] for i in indices]
+        legs = best.get("legs") or []
+        if len(legs) != len(stops) + 1:
+            raise MappingError("Google Routes returned the wrong number of route legs")
+
+        arrivals, elapsed = {}, 0.0
+        for key, leg in zip(order, legs):
+            elapsed += _duration_seconds(leg.get("duration"))
+            arrivals[key] = int(round(elapsed))
             elapsed += FakeMapProvider.MINUTES_PER_STOP * 60
-        elapsed += best["legs"][-1].get("duration_in_traffic", best["legs"][-1]["duration"])["value"]
-        path = _decode_polyline(best["overview_polyline"]["points"])
-        return Route(order, arrivals, path, elapsed, "google")
+        elapsed += _duration_seconds(legs[-1].get("duration"))
+
+        encoded = best.get("polyline", {}).get("encodedPolyline")
+        if not encoded:
+            raise MappingError("Google Routes returned no route path")
+        path = _decode_polyline(encoded)
+        return Route(order, arrivals, path, int(round(elapsed)), "google")
 
 
 class MapboxProvider:

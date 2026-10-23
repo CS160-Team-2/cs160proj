@@ -298,6 +298,66 @@ To go back to the offline fake, set `PAYMENT_GATEWAY=fake` and restart Flask.
 
 ---
 
+## Optional: Turn on live mapping
+
+OFS uses the deterministic fake mapping provider by default, so automated tests
+and development do not require an account. A live provider adds real geocoding,
+road routing, ETAs, and an interactive customer street map.
+
+### Card-free Mapbox setup
+
+Create a Mapbox demo account using **Start without a card**, verify the email,
+and copy the provided public token. It begins with `pk.`.
+
+Put the token in the server-only `backend/.env` so checkout and trip planning
+use Mapbox:
+
+```dotenv
+MAP_PROVIDER=mapbox
+MAPBOX_ACCESS_TOKEN=pk.your_public_token
+```
+
+Create `frontend/.env` from `frontend/.env.example` and put the same public
+token there so React can load Mapbox street tiles and the customer-specific
+road route:
+
+```dotenv
+VITE_MAPBOX_ACCESS_TOKEN=pk.your_public_token
+```
+
+Vite deliberately exposes variables beginning with `VITE_` to the browser, so
+use only a Mapbox **public** `pk.` token here, never a secret `sk.` token. Both
+`.env` files are ignored by Git. Restart Flask and Vite after editing them.
+
+### Google server-side alternative
+
+In a Google Cloud project with billing enabled, enable **Geocoding API** and
+**Routes API**, restrict an API key to those APIs, and put it only in
+`backend/.env`:
+
+```dotenv
+MAP_PROVIDER=google
+GOOGLE_MAPS_API_KEY=your_key_here
+```
+
+The Google key stays on the Flask server. The optional interactive browser map
+still uses a Mapbox public token. To return to offline routing, set
+`MAP_PROVIDER=fake` and restart Flask.
+
+### Verify the integration
+
+Save a delivery address, create a delivery trip as a manager, and open the
+customer's order tracking page. With the frontend Mapbox token configured, the
+page displays streets, zoom controls, the road-following delivery route, and
+store/customer markers. A vehicle marker appears after the vehicle reports its
+first latitude and longitude. Without a frontend token, the page keeps a simple
+offline diagram and its key-free **Open route in Google Maps** link.
+
+Automated tests mock every Mapbox and Google network boundary, so the test suite
+never consumes quota or needs a real token.
+
+---
+
 ## Running it again later
 
 Three terminals, every time:
