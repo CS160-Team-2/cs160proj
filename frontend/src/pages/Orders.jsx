@@ -2,6 +2,7 @@ import React, { useContext, useEffect, useState } from 'react'
 import { Link, Navigate, useLocation, useParams } from 'react-router-dom'
 import { StoreContext } from '../context/StoreContext'
 import { api } from '../api'
+import DeliveryMap from '../components/DeliveryMap'
 import TextContent from '../components/TextContent'
 import TrackOrder from './TrackOrder'
 
@@ -149,6 +150,7 @@ export const OrderView = ({ order, tracking, justPlaced, footer }) => {
       {tracking.estimated_arrival && (
         <p className="text-gray-700">Estimated arrival: <b>{formatTime(tracking.estimated_arrival)}</b></p>
       )}
+      <DeliveryMap trackingMap={tracking.map} />
 
       {/* Items and totals */}
       <div className="flex flex-col sm:flex-row gap-10 justify-between">
