@@ -6,7 +6,7 @@ import DeliveryMap from '../components/DeliveryMap'
 import TextContent from '../components/TextContent'
 import TrackOrder from './TrackOrder'
 
-const statusLabels = {
+export const statusLabels = {
   placed: 'Order placed',
   awaiting_delivery: 'Awaiting delivery',
   assigned_to_trip: 'Assigned to a trip',
@@ -14,7 +14,7 @@ const statusLabels = {
   delivered: 'Delivered',
 }
 
-const formatTime = (iso) => (iso ? new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '')
+export const formatTime = (iso) => (iso ? new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '')
 
 // Customers only; anyone else is sent to sign in.
 const useCustomer = () => {

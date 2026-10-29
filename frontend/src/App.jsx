@@ -12,6 +12,7 @@ import Footer from './components/Footer'
 import { StoreContext } from './context/StoreContext'
 import Inventory from './pages/Inventory'
 import TrackOrder from './pages/TrackOrder'
+import AdminOrders from './pages/AdminOrders'
 
 const App = () => {
 
@@ -41,6 +42,7 @@ const App = () => {
         <Route path="/track-order" element={<TrackOrder />} />
         <Route path="/orders/:orderNumber" element={<OrderDetail />} />
         <Route path="/inventory" element={<Inventory />} />
+        <Route path="/admin/orders" element={<AdminOrders />} />
       </Routes>
     </div>
 
