@@ -47,6 +47,7 @@ from routes.fleet import fleet_bp
 from routes.guest import guest_bp
 from routes.inventory import inventory_bp
 from routes.orders import orders_bp
+from routes.product_images import product_images_bp
 
 DEV_SECRET_KEY = "dev-only-secret-change-me"
 
@@ -79,6 +80,7 @@ def create_app():
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE") == "1",
+        MAX_CONTENT_LENGTH=6 * 1024 * 1024,
     )
 
     # In development React runs on a different port, so the browser treats
@@ -88,7 +90,7 @@ def create_app():
     CORS(app, resources={r"/api/*": {"origins": [frontend_origin]}}, supports_credentials=True)
 
     for blueprint in (auth_bp, addresses_bp, catalog_bp, cart_bp, orders_bp,
-                      admin_orders_bp, inventory_bp, delivery_bp, fleet_bp, guest_bp):
+                      admin_orders_bp, inventory_bp, delivery_bp, fleet_bp, guest_bp, product_images_bp):
         app.register_blueprint(blueprint)
 
     @app.get("/api/health")

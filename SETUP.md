@@ -1,6 +1,6 @@
 # OFS — Environment Setup
 
-Step-by-step setup for the feasibility spike, verified for **Windows 10/11 (x86-64)** and **macOS on Apple Silicon (M1–M5)**.
+Step-by-step setup for the OFS project, verified for **Windows 10/11 (x86-64)** and **macOS on Apple Silicon (M1–M5)**.
 
 Follow the parts in order. Each ends with a check — if the check fails, stop and look at [Troubleshooting](#troubleshooting) rather than continuing. Allow about 45 minutes the first time, most of it waiting for installers.
 
@@ -11,10 +11,11 @@ Follow the parts in order. Each ends with a check — if the check fails, stop a
 | Software | Version | Why |
 |---|---|---|
 | **Python** | 3.11 or 3.12 | Backend language. **Not 3.13** — see Troubleshooting #9 |
-| **Node.js** | 20 LTS or 22 LTS | Runs Vite. Tailwind v4 needs Node 20+ |
-| **MySQL Community Server** | 8.0 or 8.4 LTS | The database |
+| **Node.js** | 20 or newer (CI uses 24) | Runs Vite and the frontend tests. Tailwind v4 needs Node 20+ |
+| **MySQL Community Server** | 8.0 or 8.4 LTS | The database. 8.0.16 or newer is needed for `CHECK` constraints |
 | **MySQL Workbench** | 8.0.36 or newer | Managing the database visually |
 | **Git** | any recent | Source control |
+| **Docker** | any recent | Optional. Only for the Docker test database in 2.4 |
 
 Everything else installs from `requirements.txt` and `package.json`.
 
@@ -40,7 +41,7 @@ Everything else installs from `requirements.txt` and `package.json`.
 
 ```powershell
 python --version      # Python 3.12.x
-node --version        # v20.x or v22.x
+node --version        # v20 or newer
 npm --version
 mysql --version
 git --version
@@ -61,11 +62,20 @@ git --version
 
 ```bash
 python3 --version     # Python 3.12.x
-node --version        # v20.x or v22.x
+node --version        # v20 or newer
 npm --version
 git --version
 /usr/local/mysql/bin/mysql --version
 ```
+
+### Get the code (both platforms)
+
+```bash
+git clone https://github.com/CS160-Team-2/cs160proj.git
+cd cs160proj
+```
+
+Every path in the rest of this guide is relative to this `cs160proj` folder (the repository root).
 
 ---
 
@@ -86,23 +96,32 @@ The same on both platforms.
 **2.2 Run the setup script**
 
 - **File → Open SQL Script…**
-- Choose `cs160_proj_proto/backend/schema.sql`.
+- Choose `backend/schema.sql` from the repository.
 - Click the **⚡ lightning-bolt** button (*Execute all*), or press **Ctrl+Shift+Enter** / **⌘⇧Enter**.
+
+Prefer the command line? From the repository root, as root:
+
+```bash
+mysql -u root -p < backend/schema.sql
+```
+
+On macOS the `mysql` program is at `/usr/local/mysql/bin/mysql` if it is not on your PATH.
 
 **2.3 Check the result**
 
-The *Output* panel at the bottom should show green ticks and no red errors. The results grids should show:
+The *Output* panel at the bottom should show green ticks and no red errors. The last results grids should show:
 
 | check_name | result |
 |---|---|
-| Products loaded: | 3 |
+| Products loaded: | 39 |
+| Users loaded: | 3 |
 | MySQL version: | 8.0.x or 8.4.x |
 
-and a grid of three products. In the left *Navigator* panel, click the **refresh icon** beside SCHEMAS — `ofs` now appears, containing `products`.
+In the left *Navigator* panel, click the **refresh icon** beside SCHEMAS — `ofs` now appears, with its tables (`products`, `inventory`, `users`, `addresses`, `carts`, `orders`, `payments`, `delivery_trips` and more).
 
-**What the script did:** created the `ofs` database, created a user `cs160team2` with password `team2_password` limited to that database, created the `products` table, and inserted three rows. Everyone on the team runs the same script, so the same `.env` works on all six machines — nobody needs to share a personal root password.
+**What the script did:** created the `ofs` database, created a user `cs160team2` with password `team2_password` that can use `ofs` and the test database `ofs_test`, built all the tables, and loaded the seed data: 39 products with stock, and three demo accounts (see [Part 5](#part-5--verify-the-whole-system)). Everyone on the team runs the same script, so the same `.env` works on all six machines — nobody needs to share a personal root password.
 
-> ⚠️ Re-running `schema.sql` **drops and recreates** the database. That is intended for a spike. Do not develop this habit on the real project database.
+> ⚠️ Re-running `schema.sql` **drops and recreates** the `ofs` database. Everything in it is erased: orders, accounts you registered, and products you added or edited. Run it again only when you want a clean start, or when the schema changed in a pull (Troubleshooting #14).
 
 **2.4 Docker MySQL Test Database**
 
@@ -150,45 +169,45 @@ docker compose -f backend/docker/mysql/compose.yaml up -d
 
 ## Part 3 — Set up the backend
 
+Run these from the repository root. The virtual environment lives in the root `.venv` folder.
+
 ### Windows (PowerShell)
 
 ```powershell
-cd path\to\cs160_prj\spike\backend
-
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1          # see Troubleshooting #2 if blocked
 
 python -m pip install --upgrade pip
-pip install -r ../requirements.txt
+pip install -r requirements.txt
 
-copy .env.example .env
+copy backend\.env.example backend\.env
+cd backend
 ```
 
 ### macOS (Terminal)
 
 ```bash
-cd path/to/cs160_prj/cs160_proj_proto/backend
-
 python3 -m venv .venv
 source .venv/bin/activate
 
 python -m pip install --upgrade pip
-pip install -r ../requirements.txt
+pip install -r requirements.txt
 
-cp .env.example .env
+cp backend/.env.example backend/.env
+cd backend
 ```
 
-Your prompt should now start with `(.venv)`. **The virtual environment must be active every time you work on the backend** — if you open a new terminal, activate it again.
+Your prompt should now start with `(.venv)`. **The virtual environment must be active every time you work on the backend** — if you open a new terminal, activate it again (`source ../.venv/bin/activate` from `backend/`).
 
-The `.env` defaults match what `schema.sql` created, so no edits are needed unless you changed the user or password.
+The `.env` defaults match what `schema.sql` created, so no edits are needed unless you changed the user or password. [Configuration](#configuration-reference) lists every setting.
 
-**Check 1 — the rules are correct:**
+**Check 1 — the tests pass:**
 
 ```bash
-pytest -v
+pytest -q
 ```
 
-Expect **14 passed**. These tests need no database.
+Every test should pass (about 40 seconds). The tests use their own `ofs_test` database, which they rebuild before each test, so they never touch the data in `ofs`. They need MySQL running and `schema.sql` run once.
 
 **Check 2 — the API runs and reaches MySQL:**
 
@@ -203,7 +222,7 @@ curl http://localhost:5001/api/health
 curl http://localhost:5001/api/products
 ```
 
-The second must include `"weight_python_type": "Decimal"`. If it says `float`, stop — the delivery-charge rule cannot be trusted and something is wrong with the driver.
+The first should return `"ok": true`, `"database": "up"` and your MySQL version. The second lists 39 products, each with `price` and `unit_weight_lb` as **strings** such as `"6.49"` and `"3.00"`. Money and weight are decimal strings on purpose, because the 20 lb delivery rule cannot be trusted with floating-point numbers. If they come back as plain numbers, stop and ask the team.
 
 > On Windows, `curl` in PowerShell is an alias for `Invoke-WebRequest` and formats output differently. Use `curl.exe http://localhost:5001/api/health`, or just open the URL in a browser.
 
@@ -214,12 +233,12 @@ The second must include `"weight_python_type": "Decimal"`. If it says `float`, s
 Open a **third terminal** (leave Flask running in the second).
 
 ```bash
-cd path/to/cs160_prj/cs160_proj_proto/frontend
+cd frontend
 npm install
 npm run dev
 ```
 
-Vite prints `Local: http://localhost:5173/`. Open it.
+Vite prints `Local: http://localhost:5173/`. Open it, using `localhost` and not `127.0.0.1` (Troubleshooting #6).
 
 Do **not** run `npm install` with `sudo` on macOS. If you get permission errors, see Troubleshooting #7.
 
@@ -227,25 +246,56 @@ Do **not** run `npm install` with `sudo` on macOS. If you get permission errors,
 
 ## Part 5 — Verify the whole system
 
-On `http://localhost:5173` you should see four checks. All should be green:
+With Flask (terminal 1) and Vite (terminal 2) running, open `http://localhost:5173`.
 
-1. **React reaches Flask across origins** — CORS is configured correctly.
-2. **Flask reaches MySQL and reads DECIMAL** — shows your MySQL version.
-3. **Tailwind is compiling** — if the boxes are coloured and spaced, Tailwind works.
-4. **Full chain** — set **6** apple bags and **20** lemons, press *Run cart check*.
+### Demo accounts
 
-That last one is the real test. 6 × 3.00 + 20 × 0.10 = **exactly 20.00 lb**, and the result must show:
+Created by `schema.sql`, for local testing only.
 
-```
-Total weight   20.00 lb
-Delivery       $10.00        ← not FREE
-```
+| Role | Email | Password | After signing in |
+|---|---|---|---|
+| Customer | `customer@ofs.test` | `customer-pass-1` | Back to the shop; **My orders** in the profile menu |
+| Employee | `employee@ofs.test` | `employee-pass-1` | The inventory console at `/inventory` |
+| Manager | `manager@ofs.test` | `manager-pass-1` | The inventory console at `/inventory` |
 
-If it shows FREE at exactly 20.00 lb, the threshold comparison is using `<=` where it should use `<`.
+Everyone signs in on the same page (`/login`) and the role decides where they land. The public sign-up page only ever creates customers; staff accounts are created by a manager through the API.
 
-Try **5** apple bags + **20** lemons (17.00 lb) and delivery should be FREE. Try **1** water pack (25.00 lb) — charged.
+### Check the customer path
 
-**Record your results** in the table at the end of `README.md` and put that in the Part II document.
+1. **Browse.** The home page shows featured and most sold products with pictures. The Products page filters by category and price, searches by name, and sorts. Peaches and raspberries show **Unavailable**.
+2. **Add to cart.** Open a product, set a quantity and press *Add to cart*. The cart count in the header goes up. This works without signing in.
+3. **Check the 20 lb delivery rule.** Add **6** bags of apples (3.00 lb each) and **1** bunch of bananas (2.00 lb). The cart must show:
+
+   ```
+   Total weight   20.00 lb
+   Delivery       $10.00        ← not Free
+   ```
+
+   Exactly 20.00 lb is charged. If it shows Free, the threshold uses `<=` where it should use `<`. With **5** bags of apples and 1 bunch of bananas (17.00 lb) delivery is Free.
+4. **Check out as a guest.** Press checkout without signing in. Enter a name, email, phone and a delivery address (for example `1 Washington Sq`, `San Jose`, `CA`, `95192`), then pay with card `4242 4242 4242 4242`, any future expiry and any 3-digit code. You land on **Orders** with an order number and status.
+5. **Track a guest order later.** Open the profile menu, choose **Track orders**, and enter the order number plus the email you used.
+6. **Check out signed in.** Sign in as the demo customer, add something, and check out again. The saved name and address are filled in, and the order appears under **My orders**.
+7. **Declined card.** Pay with `4000 0000 0000 0002`. You stay on checkout with an error, and the cart is unchanged.
+
+### Check the staff path
+
+1. Sign out, then sign in as `employee@ofs.test`. You land on the inventory console.
+2. Search for a product, then change its stock with a number such as `10` or `-3`. Stock cannot go below zero.
+3. Press **Add product** and fill in name, price and weight (weight is required). Choose a picture (JPEG, PNG or WebP, up to 5 MB) to upload one. A product without a picture shows a grey placeholder in the shop.
+4. Open the shop and check the new product and its picture appear. Unlisting a product hides it.
+
+Where product pictures live: see [Product pictures](#product-pictures).
+
+---
+
+## Product pictures
+
+Employees upload product pictures in the inventory console. The picture file is saved on the server in `backend/uploads/products/`, and the database stores only a short reference (`upload:<random name>.jpg`) in `products.image_key`. The 39 seeded products keep the pictures bundled in `frontend/src/assets`.
+
+- `backend/uploads/` is ignored by Git, so uploaded pictures are **not** shared through the repository. Each machine has its own.
+- To store pictures somewhere else, set `PRODUCT_IMAGE_DIR` in `backend/.env`.
+- When moving to another server, copy the `uploads` folder along with the database.
+- The server accepts only real JPEG, PNG and WebP files up to 5 MB.
 
 ---
 
@@ -360,22 +410,43 @@ never consumes quota or needs a real token.
 
 ## Running it again later
 
-Three terminals, every time:
+Two terminals, every time (a third for `pytest`, `curl` and git):
 
 | Terminal | Windows | macOS |
 |---|---|---|
-| 1 — Flask | `cd spike\backend`<br>`.\.venv\Scripts\Activate.ps1`<br>`python app.py` | `cd cs160_proj_proto/backend`<br>`source .venv/bin/activate`<br>`python app.py` |
-| 2 — Vite | `cd spike\frontend`<br>`npm run dev` | `cd cs160_proj_proto/frontend`<br>`npm run dev` |
-| 3 — spare | for `pytest`, `curl`, git | same |
+| 1 — Flask | `.\.venv\Scripts\Activate.ps1`<br>`cd backend`<br>`python app.py` | `source .venv/bin/activate`<br>`cd backend`<br>`python app.py` |
+| 2 — Vite | `cd frontend`<br>`npm run dev` | `cd frontend`<br>`npm run dev` |
 
-MySQL runs as a background service and starts with your computer, so you do not start it by hand.
+Run them from the repository root. MySQL runs as a background service and starts with your computer, so you do not start it by hand.
+
+**After pulling new code**, run `npm install` in `frontend/` and `pip install -r requirements.txt` (venv active) if `package.json` or `requirements.txt` changed. If `backend/schema.sql` changed, run it again as in Part 2.
+
+## Configuration reference
+
+Backend settings go in `backend/.env`; frontend settings in `frontend/.env`. Both are ignored by Git. Never commit a key.
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE` | `127.0.0.1`, `3306`, `cs160team2`, `team2_password`, `ofs` | Database connection |
+| `FLASK_PORT` | `5001` | Port Flask listens on |
+| `FRONTEND_ORIGIN` | `http://localhost:5173` | The only address allowed to call the API |
+| `SECRET_KEY` | development key | Signs the sign-in cookie. Set your own on any shared server |
+| `PAYMENT_GATEWAY` | `fake` | `fake` or `stripe` |
+| `STRIPE_SECRET_KEY` | none | A `sk_test_` key, used when the gateway is `stripe` |
+| `MAP_PROVIDER` | `fake` | `fake`, `mapbox` or `google` |
+| `MAPBOX_ACCESS_TOKEN`, `GOOGLE_MAPS_API_KEY` | none | Server-side map keys |
+| `VEHICLE_LINK`, `VEHICLE_SIMULATION_SECONDS` | `simulated`, `20` | The simulated vehicle completes one stop every N seconds after dispatch. `0` means stops are only completed when reported |
+| `TAX_RATE` | `0.09375` | Sales tax rate |
+| `PRODUCT_IMAGE_DIR` | `backend/uploads/products` | Where uploaded pictures are saved |
+| `VITE_API_BASE` (frontend) | `http://localhost:5001` | Backend address. Empty means the same server, as in the Apache deployment |
+| `VITE_MAPBOX_ACCESS_TOKEN` (frontend) | none | A Mapbox **public** `pk.` token for the interactive delivery map |
 
 ---
 
 ## Troubleshooting
 
 **1. macOS: "Address already in use" on port 5000**
-You are running an older copy of this spike. Port 5000 is used by **AirPlay Receiver** on macOS Monterey and later. This spike uses 5001 for that reason. If you must free 5000: *System Settings → General → AirDrop & Handoff → AirPlay Receiver: Off*.
+Port 5000 is used by **AirPlay Receiver** on macOS Monterey and later. OFS uses 5001 for that reason, so this usually means an older copy of the app or a different program is set to use 5000. If you must free 5000: *System Settings → General → AirDrop & Handoff → AirPlay Receiver: Off*.
 
 **2. Windows: "running scripts is disabled on this system"**
 PowerShell blocks the venv activation script by default. Run this in the same window, then activate again:
@@ -390,7 +461,7 @@ It applies to that window only and resets when you close it.
 MySQL 8 uses an authentication plugin PyMySQL cannot speak on its own. `cryptography` is in `requirements.txt` for exactly this reason — you have a stale install. Re-run `pip install -r requirements.txt` with the venv active.
 
 **4. `Access denied for user 'cs160team2'@'localhost'`**
-`schema.sql` did not finish, or was run against a different MySQL instance. Re-run it in Workbench as root and confirm three products appear. Check `MYSQL_USER` and `MYSQL_PASSWORD` in `.env` match the script.
+`schema.sql` did not finish, or was run against a different MySQL instance. Re-run it as root (Part 2) and confirm the check shows 39 products. Check that `MYSQL_USER` and `MYSQL_PASSWORD` in `backend/.env` match the script. If `backend/.env` does not exist yet, copy it from `.env.example`: without it, Flask tries to connect with an empty password.
 
 **5. `Can't connect to MySQL server on '127.0.0.1'`**
 The server is not running.
@@ -417,10 +488,25 @@ Almost always Python 3.13. Some packages here have no 3.13 wheels yet, so pip fa
 You are installing outside a virtual environment. Make sure the prompt shows `(.venv)` — run the activation step from Part 3 again.
 
 **11. Port 5173 already in use**
-Another Vite server is running, probably from an earlier session. Vite will offer the next free port; accept it, then set `VITE_API_BASE` — or better, find the old terminal and stop it with Ctrl+C.
+Another Vite server is running, probably from an earlier session. Do not accept the next free port: the backend only allows requests from `http://localhost:5173`, so the app on another port shows "Cannot reach the store right now. Is the backend running?" even though Flask is fine. Find the old terminal and stop it with Ctrl+C, or run `lsof -nP -iTCP:5173 -sTCP:LISTEN` (macOS) to find and `kill` it, then start Vite again.
 
 **12. Everything installed but `python` is not found (Windows)**
 The "Add python.exe to PATH" box was missed during install. Re-run the installer, choose *Modify*, and tick it. Or use `py` instead of `python`.
+
+**13. After a pull: `Cannot find package 'vitest'`, `mapbox-gl` missing, or a blank page**
+New frontend packages were added. Run `npm install` in `frontend/`, then start Vite again.
+
+**14. After a pull: `Unknown column 'is_guest'` or another database error**
+The database layout changed. Run `backend/schema.sql` again as root (Part 2). This resets `ofs` to the seed data.
+
+**15. The shop says "Cannot reach the store right now"**
+Flask is not running, or Vite is not on port 5173 (see #6 and #11). Check <http://localhost:5001/api/health> in a browser.
+
+**16. An uploaded product picture does not show**
+Check that Flask is running and that the file exists in `backend/uploads/products/`. Pictures are saved on each machine, not in Git, so a picture uploaded on one laptop does not appear on another.
+
+**17. Checkout with Stripe fails or every card is refused**
+See *If something goes wrong* under Stripe test payments above. Only Stripe's test card numbers work while Stripe is on. Set `PAYMENT_GATEWAY=fake` to go back to the offline gateway.
 
 ---
 
@@ -434,8 +520,13 @@ The "Add python.exe to PATH" box was missed during install. Re-run the installer
 | `PyMySQL` | Pure-Python MySQL driver — no compiler needed on any platform |
 | `cryptography` | Required by PyMySQL to authenticate against MySQL 8 |
 | `python-dotenv` | Loads `.env` so credentials stay out of the code |
-| `pytest` | Test runner |
+| `pytest` | Backend test runner |
 | `pytest-cov` | Coverage reporting, per the test plan |
 | `react`, `react-dom` | The UI library |
+| `react-router-dom` | Page routing |
+| `mapbox-gl` | The interactive delivery map on order tracking |
 | `vite`, `@vitejs/plugin-react` | Dev server and build tool |
 | `tailwindcss`, `@tailwindcss/vite` | Styling; v4 is a Vite plugin with no config file |
+| `vitest`, `jsdom`, `@testing-library/*` | Frontend test runner and component testing tools |
+
+Stripe needs no package: the backend talks to Stripe's API directly.

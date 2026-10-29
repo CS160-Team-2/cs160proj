@@ -1,16 +1,10 @@
 import { createContext, useCallback, useEffect, useState } from 'react'
-import { assets } from '../assets/assets'
 import { api } from '../api'
+import { imageFor } from '../productImage'
 
 export const StoreContext = createContext()
 
-// Shown for products added by staff that have no matching image file.
-const placeholderImage =
-    'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><rect width="1" height="1" fill="%23e5e7eb"/></svg>'
-
-// The backend names each product's picture (image_key); the files live in
-// src/assets, so the frontend turns the name into the bundled image.
-const withImage = (product) => ({ ...product, image: assets[product.image_key] || placeholderImage })
+const withImage = (product) => ({ ...product, image: imageFor(product.image_key) })
 
 const emptyCart = {
     items: [], item_count: 0, subtotal: '0.00', total_weight_lb: '0.00',

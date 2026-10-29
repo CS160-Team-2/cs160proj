@@ -9,7 +9,7 @@
 // message}}. On an error this throws, and the thrown error carries the
 // backend's message (written for customers) and code.
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:5001'
+export const API_BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:5001'
 
 export class ApiError extends Error {
     constructor(message, code, status) {
@@ -25,8 +25,8 @@ export async function api(path, { method = 'GET', body } = {}) {
         response = await fetch(`${API_BASE}${path}`, {
             method,
             credentials: 'include',
-            headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
-            body: body === undefined ? undefined : JSON.stringify(body),
+            headers: body === undefined || body instanceof FormData ? {} : { 'Content-Type': 'application/json' },
+            body: body === undefined || body instanceof FormData ? body : JSON.stringify(body),
         })
     } catch {
         throw new ApiError('Cannot reach the store right now. Is the backend running?', 'NETWORK', 0)

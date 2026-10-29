@@ -25,3 +25,6 @@ npm-debug.log*
 Thumbs.db
 
 coverage/
+
+# Pictures staff upload for products
+backend/uploads/

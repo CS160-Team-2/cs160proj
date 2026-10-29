@@ -2,7 +2,14 @@ import React, { useContext, useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { StoreContext } from '../context/StoreContext'
 import { api } from '../api'
+import { imageFor } from '../productImage'
 import TextContent from '../components/TextContent'
+
+const uploadImage = (productId, file) => {
+  const data = new FormData()
+  data.append('image', file)
+  return api(`/api/admin/products/${productId}/image`, { method: 'POST', body: data })
+}
 
 const isStaff = (user) => user && (user.role === 'employee' || user.role === 'manager')
 
@@ -10,11 +17,48 @@ const isStaff = (user) => user && (user.role === 'employee' || user.role === 'ma
 // required, because delivery cost and vehicle capacity depend on it.
 // onSubmit gets the cleaned-up values; if it throws, the message is shown
 // under the form.
+const maxImageBytes = 5 * 1024 * 1024
+const imageTypes = ['image/jpeg', 'image/png', 'image/webp']
+
 const ProductForm = ({ initial, withStock, submitLabel, onSubmit, onCancel }) => {
 
   const [form, setForm] = useState(initial)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [imageFile, setImageFile] = useState(null)
+  const [preview, setPreview] = useState('')
+  const [removeImage, setRemoveImage] = useState(false)
+
+  useEffect(() => {
+    if (!imageFile) {
+      setPreview('')
+      return
+    }
+    const url = URL.createObjectURL(imageFile)
+    setPreview(url)
+    return () => URL.revokeObjectURL(url)
+  }, [imageFile])
+
+  const chooseImage = (e) => {
+    const file = e.target.files[0]
+    if (!file) {
+      setImageFile(null)
+      return
+    }
+    if (!imageTypes.includes(file.type)) {
+      setError('The picture must be a JPEG, PNG or WebP file.')
+      e.target.value = ''
+      return
+    }
+    if (file.size > maxImageBytes) {
+      setError('The picture must be 5 MB or smaller.')
+      e.target.value = ''
+      return
+    }
+    setError('')
+    setImageFile(file)
+    setRemoveImage(false)
+  }
 
   const change = (field) => (e) => setForm({ ...form, [field]: e.target.value })
 
@@ -27,6 +71,8 @@ const ProductForm = ({ initial, withStock, submitLabel, onSubmit, onCancel }) =>
       weight: form.weight.trim(),
       description: form.description.trim(),
       stock: form.stock.trim(),
+      imageFile,
+      removeImage,
     }
     if (!values.name) {
       setError('Enter a product name.')
@@ -103,6 +149,31 @@ const ProductForm = ({ initial, withStock, submitLabel, onSubmit, onCancel }) =>
           onChange={change('stock')}
         />
       )}
+      <div className="sm:col-span-2 flex items-center gap-4">
+        <img
+          src={preview || (removeImage ? imageFor(null) : imageFor(initial.imageKey))}
+          alt=""
+          className="w-20 h-20 object-cover border"
+        />
+        <div className="flex flex-col gap-1 text-sm">
+          <label className="text-gray-700">
+            Product picture (JPEG, PNG or WebP, up to 5 MB)
+            <input
+              className="block mt-1"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              aria-label="Product picture"
+              onChange={chooseImage}
+            />
+          </label>
+          {initial.imageKey && !imageFile && (
+            <label className="flex items-center gap-2 text-gray-600">
+              <input type="checkbox" checked={removeImage} onChange={(e) => setRemoveImage(e.target.checked)} />
+              Remove the current picture
+            </label>
+          )}
+        </div>
+      </div>
       <textarea
         className="border px-3 py-2 sm:col-span-2"
         rows={2}
@@ -175,6 +246,11 @@ const InventoryRow = ({ item, currency, onChanged }) => {
         description: values.description || null,
       },
     })
+    if (values.imageFile) {
+      await uploadImage(item.product_id, values.imageFile)
+    } else if (values.removeImage) {
+      await api(`/api/admin/products/${item.product_id}/image`, { method: 'DELETE' })
+    }
     setEditing(false)
     onChanged()
   }
@@ -191,6 +267,7 @@ const InventoryRow = ({ item, currency, onChanged }) => {
             weight: String(item.unit_weight_lb),
             description: item.description || '',
             stock: '',
+            imageKey: item.image_key,
           }}
           submitLabel="SAVE"
           onSubmit={saveEdit}
@@ -202,9 +279,12 @@ const InventoryRow = ({ item, currency, onChanged }) => {
 
   return (
     <div className="py-4 border-t border-b text-gray-700 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-      <div>
-        <p className="font-medium">{item.name}</p>
-        <p className="text-sm text-gray-500">{item.category} · {currency}{item.price} · {item.unit_weight_lb} lb</p>
+      <div className="flex items-center gap-3">
+        <img src={imageFor(item.image_key)} alt="" className="w-14 h-14 object-cover border" />
+        <div>
+          <p className="font-medium">{item.name}</p>
+          <p className="text-sm text-gray-500">{item.category} · {currency}{item.price} · {item.unit_weight_lb} lb</p>
+        </div>
       </div>
       <p className="text-sm">
         In stock: <span className="font-medium">{item.stock}</span>
@@ -269,9 +349,18 @@ const Inventory = () => {
     }
     if (values.category) body.category = values.category
     if (values.description) body.description = values.description
-    await api('/api/admin/products', { method: 'POST', body })
+    const created = await api('/api/admin/products', { method: 'POST', body })
     setAdding(false)
-    setNotice(`Added ${values.name}.`)
+    if (values.imageFile) {
+      try {
+        await uploadImage(created.product.product_id, values.imageFile)
+        setNotice(`Added ${values.name}.`)
+      } catch (err) {
+        setNotice(`Added ${values.name}, but its picture was not saved: ${err.message} Edit the product to try again.`)
+      }
+    } else {
+      setNotice(`Added ${values.name}.`)
+    }
     load()
   }
 
