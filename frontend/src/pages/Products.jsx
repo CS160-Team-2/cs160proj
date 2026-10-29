@@ -29,6 +29,7 @@ const Products = () => {
   const [appliedCategories, setAppliedCategories] = useState([])
   const [appliedRanges, setAppliedRanges] = useState([])
   const [sortType, setSortType] = useState('random')
+  const [search, setSearch] = useState('')
 
   const shuffled = useMemo(() => shuffle(products), [products])
 
@@ -51,7 +52,11 @@ const Products = () => {
     setAppliedRanges([])
   }
 
+  // Same rule as the backend's ?search=: the name contains it, ignoring capitals.
+  const query = search.trim().toLowerCase()
+
   let visible = shuffled.filter((item) => {
+    if (query && !item.name.toLowerCase().includes(query)) return false
     if (appliedCategories.length > 0 && !appliedCategories.includes(item.category)) return false
     if (appliedRanges.length > 0) {
       const price = Number(item.price)
@@ -115,21 +120,38 @@ const Products = () => {
       </div>
 
       <div className="flex-1">
-        <div className="flex justify-between items-center text-base sm:text-2xl mb-4">
+        <div className="flex flex-wrap justify-between items-center gap-3 text-base sm:text-2xl mb-4">
           <TextContent text1={"ALL"} text2={"PRODUCTS"} />
-          <select value={sortType} onChange={(e) => setSortType(e.target.value)} className="border-2 border-gray-300 text-sm px-2 py-1">
-            <option value="random">Sort by: Default</option>
-            <option value="name-asc">Sort by: Name A-Z</option>
-            <option value="name-desc">Sort by: Name Z-A</option>
-            <option value="price-low-high">Sort by: Price Low to High</option>
-            <option value="price-high-low">Sort by: Price High to Low</option>
-          </select>
+          <div className="flex flex-wrap gap-3 w-full sm:w-auto sm:ml-auto">
+            <div className="flex items-center border-2 border-gray-300 text-sm w-full sm:w-auto">
+              <input
+                type="search"
+                placeholder="Search products"
+                aria-label="Search products"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="px-2 py-1 outline-none flex-1 sm:w-56 [&::-webkit-search-cancel-button]:hidden"
+              />
+              {search && (
+                <button onClick={() => setSearch('')} aria-label="Clear search" className="px-2 text-gray-500 cursor-pointer">×</button>
+              )}
+            </div>
+            <select value={sortType} onChange={(e) => setSortType(e.target.value)} className="border-2 border-gray-300 text-sm px-2 py-1">
+              <option value="random">Sort by: Default</option>
+              <option value="name-asc">Sort by: Name A-Z</option>
+              <option value="name-desc">Sort by: Name Z-A</option>
+              <option value="price-low-high">Sort by: Price Low to High</option>
+              <option value="price-high-low">Sort by: Price High to Low</option>
+            </select>
+          </div>
         </div>
 
         {productsLoading ? (
           <p className="py-16 text-center text-gray-500">Loading products...</p>
         ) : visible.length === 0 ? (
-          <p className="py-16 text-center text-gray-500">No products match your filters.</p>
+          <p className="py-16 text-center text-gray-500">
+            {query ? `No products match "${search.trim()}".` : 'No products match your filters.'}
+          </p>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 gap-y-6">
             {visible.map((item) => (
