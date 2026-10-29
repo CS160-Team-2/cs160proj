@@ -28,6 +28,10 @@ from routes.orders import order_detail, order_summary, status_history
 
 admin_orders_bp = Blueprint("admin_orders", __name__)
 
+# A guest's users.email is a private placeholder; the address they gave
+# at checkout is in contact_email, and that is the one staff should see.
+CONTACT_EMAIL = "CASE WHEN u.is_guest THEN u.contact_email ELSE u.email END"
+
 TRIP_DRIVEN = {
     "assigned_to_trip": "Add the order to a delivery trip instead",
     "out_for_delivery": "Dispatch the order's trip instead",
@@ -72,7 +76,8 @@ def list_orders():
         params.append(end + timedelta(days=1))
 
     rows = db.query_all(
-        "SELECT o.*, u.full_name AS customer_name, u.email AS customer_email, t.trip_id, "
+        f"SELECT o.*, u.full_name AS customer_name, {CONTACT_EMAIL} AS customer_email, "
+        "       u.is_guest, t.trip_id, "
         "       (SELECT SUM(quantity) FROM order_items WHERE order_id = o.order_id) AS item_count "
         "FROM orders o JOIN users u ON u.user_id = o.user_id "
         "LEFT JOIN trip_orders t ON t.order_id = o.order_id "
@@ -82,7 +87,8 @@ def list_orders():
     )
     return ok(orders=[
         {**order_summary(r), "customer_name": r["customer_name"],
-         "customer_email": r["customer_email"], "item_count": int(r["item_count"] or 0),
+         "customer_email": r["customer_email"], "is_guest": bool(r["is_guest"]),
+         "item_count": int(r["item_count"] or 0),
          "trip_id": r["trip_id"], "unscheduled_reason": r["unscheduled_reason"]}
         for r in rows
     ])
@@ -93,7 +99,9 @@ def list_orders():
 def get_order(order_id):
     row = _order(order_id)
     customer = db.query_one(
-        "SELECT user_id, full_name, email, phone FROM users WHERE user_id = %s", (row["user_id"],))
+        f"SELECT user_id, full_name, {CONTACT_EMAIL} AS email, phone, is_guest "
+        "FROM users u WHERE user_id = %s", (row["user_id"],))
+    customer["is_guest"] = bool(customer["is_guest"])
     trip = db.query_one(
         "SELECT trip_id, stop_sequence, est_arrival, delivered_at FROM trip_orders "
         "WHERE order_id = %s", (order_id,))

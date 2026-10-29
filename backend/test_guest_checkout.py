@@ -124,6 +124,18 @@ def test_guest_can_look_up_the_order_after_signing_out(client):
     assert error_code(refused) == "ORDER_NOT_FOUND"
 
 
+def test_managers_see_the_guests_real_email(client, manager):
+    order_id = place_guest_order(client).get_json()["order"]["order_id"]
+
+    listed = manager.get("/api/admin/orders").get_json()["orders"][0]
+    assert listed["customer_email"] == CONTACT["email"]
+    assert listed["is_guest"] is True
+
+    customer = manager.get(f"/api/admin/orders/{order_id}").get_json()["order"]["customer"]
+    assert customer["email"] == CONTACT["email"]
+    assert customer["is_guest"] is True
+
+
 def test_guest_contact_email_cannot_be_used_to_sign_in(client):
     add_to_guest_cart(client)
     assert start_guest(client).status_code == 201
