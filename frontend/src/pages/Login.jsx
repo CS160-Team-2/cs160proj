@@ -29,8 +29,9 @@ const Login = () => {
       const user = creating
         ? await register(fullName, email, password)
         : await signIn(email, password)
-      // Staff have no shop pages yet; the dashboard is still to be built.
-      navigate(user.role === 'customer' ? next : '/inventory')
+      // Managers start on the order dashboard, employees on the inventory console.
+      const staffHome = user.role === 'manager' ? '/manager' : '/inventory'
+      navigate(user.role === 'customer' ? next : staffHome)
     } catch (err) {
       setError(err.message)
     } finally {

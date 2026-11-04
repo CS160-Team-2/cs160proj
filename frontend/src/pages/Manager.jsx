@@ -1,0 +1,560 @@
+import React, { useContext, useEffect, useState } from 'react'
+import { Link, Navigate, useLocation } from 'react-router-dom'
+import { StoreContext } from '../context/StoreContext'
+import { api } from '../api'
+import TextContent from '../components/TextContent'
+
+const statusLabels = {
+  placed: 'Order placed',
+  awaiting_delivery: 'Awaiting delivery',
+  assigned_to_trip: 'Assigned to a trip',
+  out_for_delivery: 'Out for delivery',
+  delivered: 'Delivered',
+}
+
+const tripLabels = {
+  planned: 'Planned',
+  out_for_delivery: 'Out for delivery',
+  completed: 'Completed',
+}
+
+const providerName = (provider) => ({
+  google: 'Google Routes',
+  mapbox: 'Mapbox',
+  fake: 'the offline demo provider',
+}[provider] || 'the mapping provider')
+
+const formatTime = (iso) => (iso ? new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '')
+
+const waited = (minutes) => (minutes >= 60 ? `${Math.floor(minutes / 60)} h ${minutes % 60} min` : `${minutes} min`)
+
+const round = (number) => Math.round(number * 100) / 100
+
+// Managers only; everyone else is sent somewhere they are allowed to be.
+const useManager = () => {
+  const { user } = useContext(StoreContext)
+  if (user === undefined) return { ready: false }
+  if (!user) return { ready: false, redirect: '/login' }
+  if (user.role !== 'manager') return { ready: false, redirect: user.role === 'employee' ? '/inventory' : '/' }
+  return { ready: true }
+}
+
+// The page frame and tabs shared by the manager screens
+const ManagerLayout = ({ title, children }) => {
+
+  const { pathname } = useLocation()
+  const tab = (to, label) => (
+    <Link to={to} className={`px-4 py-2 text-sm ${pathname === to ? 'border-b-2 border-green-600 font-medium text-green-700' : 'text-gray-600'}`}>{label}</Link>
+  )
+
+  return (
+    <div className="border-t-2 pt-14">
+      <div className="text-2xl mb-6">
+        <TextContent text1={'MANAGER'} text2={title} />
+      </div>
+      <div className="flex gap-2 border-b border-gray-300 mb-8">
+        {tab('/manager', 'Orders')}
+        {tab('/manager/delivery', 'Delivery')}
+        {tab('/inventory', 'Inventory')}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+const Section = ({ text1, text2, children }) => (
+  <div className="flex flex-col gap-4 mb-12">
+    <div className="text-xl sm:text-2xl">
+      <TextContent text1={text1} text2={text2} />
+    </div>
+    {children}
+  </div>
+)
+
+// A used-versus-limit bar, in the same style as the order progress bars
+const Meter = ({ label, used, limit, unit = '' }) => {
+  const over = used > Number(limit)
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex justify-between text-sm text-gray-600">
+        <p>{label}</p>
+        <p className={over ? 'text-red-600' : ''}>{round(used)} of {Number(limit)}{unit}</p>
+      </div>
+      <div className="h-2 bg-gray-200">
+        <div className={`h-2 ${over ? 'bg-red-600' : 'bg-green-600'}`} style={{ width: `${Math.min(100, (used / Number(limit)) * 100)}%` }} />
+      </div>
+    </div>
+  )
+}
+
+// =====================================================================
+// /manager: every customer order
+// =====================================================================
+
+const OrderRow = ({ order, currency, onChanged }) => {
+
+  const [open, setOpen] = useState(false)
+  const [detail, setDetail] = useState(null)
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    if (!open) return
+    api(`/api/admin/orders/${order.order_id}`)
+      .then((data) => setDetail(data.order))
+      .catch((err) => setMessage(err.message))
+  }, [open, order.status])
+
+  const setStatus = async (status) => {
+    try {
+      await api(`/api/admin/orders/${order.order_id}/status`, { method: 'PATCH', body: { status } })
+      setMessage('')
+      onChanged()
+    } catch (err) {
+      setMessage(err.message)
+    }
+  }
+
+  // Only these two steps are the manager's own; the others happen on a trip.
+  const action = {
+    placed: { label: 'MARK READY FOR DELIVERY', status: 'awaiting_delivery' },
+    out_for_delivery: { label: 'CONFIRM DELIVERED', status: 'delivered' },
+  }[order.status]
+
+  return (
+    <div className="py-4 border-t border-b text-gray-700">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <button onClick={() => setOpen(!open)} aria-expanded={open} className="text-left cursor-pointer">
+          <p className="font-medium">{order.order_number}</p>
+          <p className="text-sm text-gray-500">
+            {order.customer_name} · {formatTime(order.placed_at)} · {order.item_count} items · {order.total_weight_lb} lb · {currency}{order.grand_total}
+          </p>
+        </button>
+        <div className="sm:text-right">
+          <p className="text-sm">{statusLabels[order.status]}</p>
+          {order.trip_id && <p className="text-sm text-gray-500">Trip #{order.trip_id}</p>}
+        </div>
+        <div>
+          {action && (
+            <button onClick={() => setStatus(action.status)} className="bg-green-600 text-white text-sm px-6 py-2 active:bg-green-400">{action.label}</button>
+          )}
+          {order.status === 'awaiting_delivery' && (
+            <Link to="/manager/delivery" className="text-sm text-green-600 underline">Add to a trip</Link>
+          )}
+          {order.status === 'assigned_to_trip' && (
+            <Link to="/manager/delivery" className="text-sm text-green-600 underline">Dispatch its trip</Link>
+          )}
+        </div>
+      </div>
+      {order.unscheduled_reason && <p className="mt-1 text-sm text-red-600">Not scheduled: {order.unscheduled_reason}</p>}
+      {message && <p className="mt-1 text-sm text-red-600">{message}</p>}
+
+      {open && detail && (
+        <div className="mt-4 grid sm:grid-cols-2 gap-6 text-sm">
+          <div className="flex flex-col gap-1">
+            <p className="font-medium">Items</p>
+            {detail.items.map((item) => (
+              <p key={item.product_id} className="text-gray-600">
+                {item.quantity} × {item.name} · {item.unit_weight_lb} lb each · {currency}{item.line_total}
+              </p>
+            ))}
+            <p className="text-gray-500 mt-1">Subtotal {currency}{detail.subtotal} · Tax {currency}{detail.tax} · Delivery {currency}{detail.delivery_fee}</p>
+          </div>
+          <div className="flex flex-col gap-1">
+            <p className="font-medium">Customer and address</p>
+            <p className="text-gray-600">{detail.customer.full_name} · {detail.customer.email}{detail.customer.phone ? ` · ${detail.customer.phone}` : ''}</p>
+            <p className="text-gray-600">{detail.address.street}, {detail.address.city}, {detail.address.state} {detail.address.zip_code}</p>
+            <p className="text-gray-500">{detail.payment ? `Paid with a card ending ${detail.payment.card_last4}` : 'No approved payment on record'}</p>
+          </div>
+          <div className="sm:col-span-2 flex flex-col gap-1">
+            <p className="font-medium">History</p>
+            {detail.history.map((step, index) => (
+              <p key={index} className="text-gray-600">
+                {formatTime(step.changed_at)} · {statusLabels[step.to_status]}{step.changed_by ? ` by ${step.changed_by}` : ''}
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export const ManagerOrders = () => {
+
+  const { currency } = useContext(StoreContext)
+  const { ready, redirect } = useManager()
+  const [orders, setOrders] = useState(null)
+  const [filter, setFilter] = useState('')
+  const [error, setError] = useState('')
+
+  const load = () => api('/api/admin/orders')
+    .then((data) => {
+      setOrders(data.orders)
+      setError('')
+    })
+    .catch((err) => setError(err.message))
+
+  useEffect(() => {
+    if (!ready) return
+    load()
+    const timer = setInterval(load, 15000)
+    return () => clearInterval(timer)
+  }, [ready])
+
+  if (redirect) return <Navigate to={redirect} replace />
+  if (!ready) return null
+
+  const count = (status) => orders.filter((order) => order.status === status).length
+  const chip = (active) => `border text-sm px-4 py-1 ${active ? 'border-green-600 bg-green-600 text-white' : 'border-gray-300 text-gray-700'}`
+  const shown = orders ? orders.filter((order) => !filter || order.status === filter) : []
+
+  return (
+    <ManagerLayout title="ORDERS">
+      {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
+      {orders && (
+        <>
+          <div className="flex flex-wrap gap-2 mb-6">
+            <button onClick={() => setFilter('')} aria-pressed={filter === ''} className={chip(filter === '')}>All ({orders.length})</button>
+            {Object.keys(statusLabels).map((status) => (
+              <button key={status} onClick={() => setFilter(status)} aria-pressed={filter === status} className={chip(filter === status)}>
+                {statusLabels[status]} ({count(status)})
+              </button>
+            ))}
+          </div>
+          {shown.length === 0 && <p className="text-gray-600">No orders here.</p>}
+          {shown.map((order) => (
+            <OrderRow key={order.order_id} order={order} currency={currency} onChanged={load} />
+          ))}
+        </>
+      )}
+    </ManagerLayout>
+  )
+}
+
+// =====================================================================
+// /manager/delivery: queue, trips, routes and exceptions
+// =====================================================================
+
+const isFree = (vehicle) => vehicle.status === 'available' && !vehicle.current_trip_id
+
+// Store to each stop in order, joined by straight lines. The driver follows
+// real roads; this only shows the order and spread of the stops.
+const RouteSketch = ({ store, stops }) => {
+
+  const W = 640
+  const H = 220
+  const PAD = 36
+  const located = stops.filter((stop) => stop.latitude != null && stop.longitude != null)
+  if (!store || located.length === 0) return null
+
+  const points = [
+    { label: 'Store', latitude: Number(store.latitude), longitude: Number(store.longitude), store: true },
+    ...located.map((stop, index) => ({
+      label: String(stop.stop_sequence || index + 1),
+      latitude: Number(stop.latitude),
+      longitude: Number(stop.longitude),
+    })),
+  ]
+  const lats = points.map((p) => p.latitude)
+  const lngs = points.map((p) => p.longitude)
+  const minLat = Math.min(...lats)
+  const maxLat = Math.max(...lats)
+  const minLng = Math.min(...lngs)
+  const latRange = Math.max(maxLat - minLat, 0.005)
+  const lngRange = Math.max(Math.max(...lngs) - minLng, 0.005)
+  const together = maxLat - minLat < 0.0005 && Math.max(...lngs) - minLng < 0.0005
+  const place = (p) => ({
+    x: PAD + ((p.longitude - minLng) / lngRange) * (W - PAD * 2),
+    y: PAD + ((maxLat - p.latitude) / latRange) * (H - PAD * 2),
+  })
+
+  return (
+    <div className="flex flex-col gap-1">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-64 bg-white border border-gray-300" role="img" aria-label="Planned route from the store through each stop in order">
+        <polyline points={points.map((p) => `${place(p).x},${place(p).y}`).join(' ')} fill="none" stroke="#16a34a" strokeWidth="4" strokeLinejoin="round" strokeDasharray="10 8" />
+        {points.map((p, index) => {
+          const { x, y } = place(p)
+          return (
+            <g key={index}>
+              <circle cx={x} cy={y} r="12" fill={p.store ? '#2563eb' : '#16a34a'} stroke="white" strokeWidth="3" />
+              <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fontSize="12" fill="white">{p.store ? 'S' : p.label}</text>
+            </g>
+          )
+        })}
+      </svg>
+      <p className="text-xs text-gray-500">
+        {together
+          ? 'The store and every stop are at the same location, so there is no distance to draw.'
+          : 'S is the store and the numbers are the stops, in delivery order. Lines are straight, not real roads.'}
+      </p>
+    </div>
+  )
+}
+
+const TripCard = ({ trip, queue, onChanged }) => {
+
+  const [message, setMessage] = useState('')
+  const [addId, setAddId] = useState('')
+
+  // One helper for every change a manager makes to a trip.
+  const act = async (method, path, body) => {
+    try {
+      const data = await api(`/api/admin/delivery/trips/${trip.trip_id}${path}`, body === undefined ? { method } : { method, body })
+      setMessage(data.route_error ? `The route could not be planned: ${data.route_error}` : '')
+      onChanged()
+      return true
+    } catch (err) {
+      setMessage(err.message)
+      return false
+    }
+  }
+
+  const addOrder = async () => {
+    if (await act('POST', '/orders', { order_id: Number(addId) })) setAddId('')
+  }
+
+  const planned = trip.status === 'planned'
+  const stops = [...trip.stops].sort((a, b) => (a.stop_sequence ?? 99) - (b.stop_sequence ?? 99))
+
+  return (
+    <div className="py-4 border-t border-b text-gray-700 flex flex-col gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div>
+          <p className="font-medium">Trip #{trip.trip_id} · {trip.vehicle.name}</p>
+          <p className="text-sm text-gray-500">
+            Created {formatTime(trip.created_at)}
+            {trip.started_at && ` · left ${formatTime(trip.started_at)}`}
+            {trip.completed_at && ` · finished ${formatTime(trip.completed_at)}`}
+          </p>
+        </div>
+        <p className="text-sm">{tripLabels[trip.status]}</p>
+      </div>
+
+      <div className="grid sm:grid-cols-2 gap-4">
+        <Meter label="Orders" used={trip.order_count} limit={trip.vehicle.max_orders} />
+        <Meter label="Weight" used={Number(trip.total_weight_lb)} limit={trip.vehicle.max_weight_lb} unit=" lb" />
+      </div>
+      {trip.capacity_problem && <p className="text-sm text-red-600">{trip.capacity_problem}</p>}
+
+      {trip.route_planned
+        ? <p className="text-sm text-gray-600">Route planned with {providerName(trip.route?.provider)}, about {trip.route?.total_minutes} min in total.</p>
+        : <p className="text-sm text-red-600">No route planned yet, so this trip cannot be dispatched.</p>}
+      <RouteSketch store={trip.route?.store} stops={stops} />
+
+      <div className="flex flex-col gap-2">
+        {stops.length === 0 && <p className="text-sm text-gray-500">This trip has no orders yet.</p>}
+        {stops.map((stop) => (
+          <div key={stop.order_id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-sm">
+            <p><span className="font-medium">{stop.stop_sequence || '-'}. {stop.order_number}</span> · {stop.customer_name} · {stop.address}</p>
+            <div className="flex items-center gap-4 text-gray-500">
+              <p>{stop.weight_lb} lb{stop.est_arrival && ` · arrives about ${formatTime(stop.est_arrival)}`}</p>
+              {planned
+                ? <button onClick={() => act('DELETE', `/orders/${stop.order_id}`)} aria-label={`Remove ${stop.order_number} from trip ${trip.trip_id}`} className="text-sm text-gray-600 underline">Remove</button>
+                : <p>{stop.delivered_at ? `Delivered ${formatTime(stop.delivered_at)}` : statusLabels[stop.status]}</p>}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {trip.status === 'out_for_delivery' && (
+        <p className="text-sm text-gray-600">
+          {trip.last_report
+            ? <>Latest vehicle report: <b>{trip.last_report}</b>{trip.last_position && ` at ${formatTime(trip.last_position.at)}`}</>
+            : 'Waiting for the first report from the vehicle.'}
+        </p>
+      )}
+
+      {planned && (
+        <div className="flex flex-wrap items-center gap-3">
+          <select aria-label={`Add an order to trip ${trip.trip_id}`} className="border border-gray-300 px-3 py-2 text-sm" value={addId} onChange={(e) => setAddId(e.target.value)}>
+            <option value="">Add an order...</option>
+            {queue.map((order) => (
+              <option key={order.order_id} value={order.order_id}>{order.order_number} ({order.total_weight_lb} lb)</option>
+            ))}
+          </select>
+          <button onClick={addOrder} disabled={!addId} className="border border-gray-300 text-sm px-4 py-2 disabled:opacity-50">ADD</button>
+          <button onClick={() => act('POST', '/route')} className="text-sm text-green-600 underline">Re-plan route</button>
+          <button
+            onClick={() => act('POST', '/dispatch')}
+            disabled={trip.order_count === 0 || !trip.route_planned || !!trip.capacity_problem}
+            className="bg-green-600 text-white text-sm px-6 py-2 active:bg-green-400 disabled:opacity-50 sm:ml-auto"
+          >
+            DISPATCH
+          </button>
+        </div>
+      )}
+      {message && <p className="text-sm text-red-600">{message}</p>}
+    </div>
+  )
+}
+
+// Pick waiting orders and a vehicle; the limits are checked before anything is sent.
+const TripBuilder = ({ queue, vehicles, onChanged }) => {
+
+  const [selected, setSelected] = useState([])
+  const [vehicleId, setVehicleId] = useState('')
+  const [created, setCreated] = useState('')
+  const [error, setError] = useState('')
+
+  const free = vehicles.filter(isFree)
+  const vehicle = free.find((v) => String(v.vehicle_id) === vehicleId) || free[0]
+  const picked = queue.filter((order) => selected.includes(order.order_id))
+  const weight = picked.reduce((sum, order) => sum + Number(order.total_weight_lb), 0)
+
+  let problem = ''
+  if (vehicle && picked.length > vehicle.max_orders) {
+    problem = `Trip has ${picked.length} orders; the vehicle limit is ${vehicle.max_orders}`
+  } else if (vehicle && weight > Number(vehicle.max_weight_lb)) {
+    problem = `Trip weighs ${round(weight)} lb; the vehicle limit is ${Number(vehicle.max_weight_lb)} lb`
+  }
+
+  const toggle = (orderId) => setSelected(selected.includes(orderId) ? selected.filter((id) => id !== orderId) : [...selected, orderId])
+
+  const createTrip = async (body) => {
+    setError('')
+    setCreated('')
+    try {
+      const data = await api('/api/admin/delivery/trips', { method: 'POST', body })
+      setSelected([])
+      setCreated(`Trip #${data.trip.trip_id} was created with ${data.trip.order_count} orders.${data.route_error ? ` The route could not be planned: ${data.route_error}` : ''}`)
+      onChanged()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  return (
+    <div className="flex flex-col lg:flex-row justify-between gap-10">
+      <div className="w-full">
+        {queue.length === 0 && <p className="text-gray-600">No orders are waiting for delivery.</p>}
+        {queue.map((order) => (
+          <label key={order.order_id} className="py-4 border-t border-b text-gray-700 flex items-center gap-4 cursor-pointer">
+            <input type="checkbox" className="accent-green-600" checked={selected.includes(order.order_id)} onChange={() => toggle(order.order_id)} aria-label={`Select ${order.order_number}`} />
+            <div>
+              <p className="font-medium">{order.order_number}</p>
+              <p className="text-sm text-gray-500">{order.total_weight_lb} lb · waiting {waited(order.waited_minutes)}</p>
+              {order.unscheduled_reason && <p className="text-sm text-red-600">{order.unscheduled_reason}</p>}
+            </div>
+          </label>
+        ))}
+      </div>
+
+      <div className="w-full lg:max-w-[450px] flex flex-col gap-4 self-start border border-gray-300 rounded px-4 py-4">
+        <p className="font-medium text-sm text-gray-700">NEW TRIP</p>
+        <select aria-label="Vehicle" className="border border-gray-300 px-3 py-2 w-full text-sm" value={vehicle ? String(vehicle.vehicle_id) : ''} onChange={(e) => setVehicleId(e.target.value)}>
+          {vehicles.map((v) => (
+            <option key={v.vehicle_id} value={v.vehicle_id} disabled={!isFree(v)}>
+              {v.name}{isFree(v) ? '' : v.current_trip_id ? ` (on trip #${v.current_trip_id})` : ` (${v.status})`}
+            </option>
+          ))}
+        </select>
+        {vehicle ? (
+          <>
+            <Meter label="Selected orders" used={picked.length} limit={vehicle.max_orders} />
+            <Meter label="Selected weight" used={weight} limit={vehicle.max_weight_lb} unit=" lb" />
+          </>
+        ) : (
+          <p className="text-sm text-red-600">No vehicle is free right now.</p>
+        )}
+        {problem && <p className="text-sm text-red-600" role="alert">{problem}</p>}
+        {error && <p className="text-sm text-red-600" role="alert">{error}</p>}
+        <button
+          onClick={() => createTrip({ vehicle_id: vehicle.vehicle_id, order_ids: picked.map((order) => order.order_id) })}
+          disabled={!vehicle || picked.length === 0 || !!problem}
+          className="w-full bg-green-600 text-white text-sm px-8 py-3 active:bg-green-400 disabled:opacity-50"
+        >
+          CREATE TRIP FROM SELECTED
+        </button>
+        <button
+          onClick={() => createTrip({ vehicle_id: vehicle.vehicle_id })}
+          disabled={!vehicle || queue.length === 0}
+          className="self-start text-sm text-green-600 underline disabled:opacity-50"
+        >
+          Fill a trip automatically, oldest orders first
+        </button>
+        {created && (
+          <div className="bg-green-50 border border-green-600 px-5 py-4">
+            <p className="text-sm font-medium text-green-700">{created}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+export const ManagerDelivery = () => {
+
+  const { ready, redirect } = useManager()
+  const [queue, setQueue] = useState([])
+  const [exceptions, setExceptions] = useState([])
+  const [vehicles, setVehicles] = useState([])
+  const [trips, setTrips] = useState(null)
+  const [tripFilter, setTripFilter] = useState('')
+  const [error, setError] = useState('')
+
+  const load = () => Promise.all([
+    api('/api/admin/delivery/queue'),
+    api('/api/admin/delivery/exceptions'),
+    api('/api/admin/delivery/vehicles'),
+    api('/api/admin/delivery/trips'),
+  ])
+    .then(([waiting, problems, fleet, allTrips]) => {
+      setQueue(waiting.orders)
+      setExceptions(problems.orders)
+      setVehicles(fleet.vehicles)
+      setTrips(allTrips.trips)
+      setError('')
+    })
+    .catch((err) => setError(err.message))
+
+  useEffect(() => {
+    if (!ready) return
+    load()
+    const timer = setInterval(load, 10000)
+    return () => clearInterval(timer)
+  }, [ready])
+
+  if (redirect) return <Navigate to={redirect} replace />
+  if (!ready) return null
+
+  const shownTrips = trips ? trips.filter((trip) => !tripFilter || trip.status === tripFilter) : []
+
+  return (
+    <ManagerLayout title="DELIVERY">
+      {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
+
+      <Section text1={'NEEDS'} text2={'ATTENTION'}>
+        {exceptions.length === 0 && <p className="text-sm text-gray-600">Every waiting order can be scheduled.</p>}
+        {exceptions.length > 0 && (
+          <div className="bg-red-50 border border-red-600 px-5 py-4 flex flex-col gap-1">
+            <p className="font-medium text-red-700">These orders cannot be scheduled right now</p>
+            {exceptions.map((order) => (
+              <p key={order.order_id} className="text-sm text-gray-700">
+                <span className="font-medium">{order.order_number}</span> · {order.total_weight_lb} lb · {order.reason}
+              </p>
+            ))}
+          </div>
+        )}
+      </Section>
+
+      <Section text1={'WAITING FOR'} text2={'DELIVERY'}>
+        <TripBuilder queue={queue} vehicles={vehicles} onChanged={load} />
+      </Section>
+
+      <Section text1={'DELIVERY'} text2={'TRIPS'}>
+        <select aria-label="Filter trips" className="self-start border border-gray-300 px-3 py-2 text-sm" value={tripFilter} onChange={(e) => setTripFilter(e.target.value)}>
+          <option value="">All trips</option>
+          {Object.keys(tripLabels).map((status) => (
+            <option key={status} value={status}>{tripLabels[status]}</option>
+          ))}
+        </select>
+        {trips && shownTrips.length === 0 && <p className="text-gray-600">No trips here yet.</p>}
+        <div>
+          {shownTrips.map((trip) => (
+            <TripCard key={trip.trip_id} trip={trip} queue={queue} onChanged={load} />
+          ))}
+        </div>
+      </Section>
+    </ManagerLayout>
+  )
+}
