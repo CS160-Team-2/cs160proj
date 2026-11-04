@@ -3,6 +3,9 @@ import { Link, Navigate, useLocation } from 'react-router-dom'
 import { StoreContext } from '../context/StoreContext'
 import { api } from '../api'
 import TextContent from '../components/TextContent'
+import DeliveryOverview from '../components/DeliveryOverview'
+import DeliveryMap from '../components/DeliveryMap'
+import ArrivalEstimate from '../components/ArrivalEstimate'
 
 const statusLabels = {
   placed: 'Order placed',
@@ -95,14 +98,22 @@ const OrderRow = ({ order, currency, onChanged }) => {
 
   const [open, setOpen] = useState(false)
   const [detail, setDetail] = useState(null)
+  const [tracking, setTracking] = useState(null)
   const [message, setMessage] = useState('')
 
   useEffect(() => {
     if (!open) return
-    api(`/api/admin/orders/${order.order_id}`)
-      .then((data) => setDetail(data.order))
-      .catch((err) => setMessage(err.message))
-  }, [open, order.status])
+    let current = true
+    const load = () => Promise.all([
+      api(`/api/admin/orders/${order.order_id}`),
+      api(`/api/admin/orders/${order.order_id}/tracking`),
+    ]).then(([data, track]) => {
+      if (current) { setDetail(data.order); setTracking(track) }
+    }).catch((err) => { if (current) setMessage(err.message) })
+    load()
+    const timer = setInterval(load, 15000)
+    return () => { current = false; clearInterval(timer) }
+  }, [open, order.order_id, order.status])
 
   const setStatus = async (status) => {
     try {
@@ -164,6 +175,10 @@ const OrderRow = ({ order, currency, onChanged }) => {
             <p className="text-gray-600">{detail.customer.full_name} · {detail.customer.email}{detail.customer.phone ? ` · ${detail.customer.phone}` : ''}</p>
             <p className="text-gray-600">{detail.address.street}, {detail.address.city}, {detail.address.state} {detail.address.zip_code}</p>
             <p className="text-gray-500">{detail.payment ? `Paid with a card ending ${detail.payment.card_last4}` : 'No approved payment on record'}</p>
+          </div>
+          <div className="sm:col-span-2 flex flex-col gap-1">
+            <ArrivalEstimate value={tracking?.estimated_arrival} />
+            <DeliveryMap trackingMap={tracking?.map} status={order.status} />
           </div>
           <div className="sm:col-span-2 flex flex-col gap-1">
             <p className="font-medium">History</p>
@@ -237,61 +252,8 @@ export const ManagerOrders = () => {
 
 const isFree = (vehicle) => vehicle.status === 'available' && !vehicle.current_trip_id
 
-// Store to each stop in order, joined by straight lines. The driver follows
-// real roads; this only shows the order and spread of the stops.
-const RouteSketch = ({ store, stops }) => {
 
-  const W = 640
-  const H = 220
-  const PAD = 36
-  const located = stops.filter((stop) => stop.latitude != null && stop.longitude != null)
-  if (!store || located.length === 0) return null
-
-  const points = [
-    { label: 'Store', latitude: Number(store.latitude), longitude: Number(store.longitude), store: true },
-    ...located.map((stop, index) => ({
-      label: String(stop.stop_sequence || index + 1),
-      latitude: Number(stop.latitude),
-      longitude: Number(stop.longitude),
-    })),
-  ]
-  const lats = points.map((p) => p.latitude)
-  const lngs = points.map((p) => p.longitude)
-  const minLat = Math.min(...lats)
-  const maxLat = Math.max(...lats)
-  const minLng = Math.min(...lngs)
-  const latRange = Math.max(maxLat - minLat, 0.005)
-  const lngRange = Math.max(Math.max(...lngs) - minLng, 0.005)
-  const together = maxLat - minLat < 0.0005 && Math.max(...lngs) - minLng < 0.0005
-  const place = (p) => ({
-    x: PAD + ((p.longitude - minLng) / lngRange) * (W - PAD * 2),
-    y: PAD + ((maxLat - p.latitude) / latRange) * (H - PAD * 2),
-  })
-
-  return (
-    <div className="flex flex-col gap-1">
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-64 bg-white border border-gray-300" role="img" aria-label="Planned route from the store through each stop in order">
-        <polyline points={points.map((p) => `${place(p).x},${place(p).y}`).join(' ')} fill="none" stroke="#16a34a" strokeWidth="4" strokeLinejoin="round" strokeDasharray="10 8" />
-        {points.map((p, index) => {
-          const { x, y } = place(p)
-          return (
-            <g key={index}>
-              <circle cx={x} cy={y} r="12" fill={p.store ? '#2563eb' : '#16a34a'} stroke="white" strokeWidth="3" />
-              <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fontSize="12" fill="white">{p.store ? 'S' : p.label}</text>
-            </g>
-          )
-        })}
-      </svg>
-      <p className="text-xs text-gray-500">
-        {together
-          ? 'The store and every stop are at the same location, so there is no distance to draw.'
-          : 'S is the store and the numbers are the stops, in delivery order. Lines are straight, not real roads.'}
-      </p>
-    </div>
-  )
-}
-
-const TripCard = ({ trip, queue, onChanged }) => {
+const TripCard = ({ trip, queue, onChanged, onViewRoute }) => {
 
   const [message, setMessage] = useState('')
   const [addId, setAddId] = useState('')
@@ -339,7 +301,7 @@ const TripCard = ({ trip, queue, onChanged }) => {
       {trip.route_planned
         ? <p className="text-sm text-gray-600">Route planned with {providerName(trip.route?.provider)}, about {trip.route?.total_minutes} min in total.</p>
         : <p className="text-sm text-red-600">No route planned yet, so this trip cannot be dispatched.</p>}
-      <RouteSketch store={trip.route?.store} stops={stops} />
+      <a href="#delivery-overview" onClick={() => onViewRoute(trip.trip_id)} className="text-sm text-green-700 underline">View trip #{trip.trip_id} on the delivery map</a>
 
       <div className="flex flex-col gap-2">
         {stops.length === 0 && <p className="text-sm text-gray-500">This trip has no orders yet.</p>}
@@ -347,7 +309,7 @@ const TripCard = ({ trip, queue, onChanged }) => {
           <div key={stop.order_id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-sm">
             <p><span className="font-medium">{stop.stop_sequence || '-'}. {stop.order_number}</span> · {stop.customer_name} · {stop.address}</p>
             <div className="flex items-center gap-4 text-gray-500">
-              <p>{stop.weight_lb} lb{stop.est_arrival && ` · arrives about ${formatTime(stop.est_arrival)}`}</p>
+              <div><p>{stop.weight_lb} lb</p>{!stop.delivered_at && <ArrivalEstimate value={stop.est_arrival} />}</div>
               {planned
                 ? <button onClick={() => act('DELETE', `/orders/${stop.order_id}`)} aria-label={`Remove ${stop.order_number} from trip ${trip.trip_id}`} className="text-sm text-gray-600 underline">Remove</button>
                 : <p>{stop.delivered_at ? `Delivered ${formatTime(stop.delivered_at)}` : statusLabels[stop.status]}</p>}
@@ -490,6 +452,8 @@ export const ManagerDelivery = () => {
   const [vehicles, setVehicles] = useState([])
   const [trips, setTrips] = useState(null)
   const [tripFilter, setTripFilter] = useState('')
+  const [selectedTrip, setSelectedTrip] = useState('')
+  const [updated, setUpdated] = useState(null)
   const [error, setError] = useState('')
 
   const load = () => Promise.all([
@@ -504,6 +468,7 @@ export const ManagerDelivery = () => {
       setVehicles(fleet.vehicles)
       setTrips(allTrips.trips)
       setError('')
+      setUpdated(new Date())
     })
     .catch((err) => setError(err.message))
 
@@ -522,6 +487,11 @@ export const ManagerDelivery = () => {
   return (
     <ManagerLayout title="DELIVERY">
       {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
+
+      <Section text1="DELIVERY" text2="MAP">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-gray-500"><p>{updated ? `Last refreshed ${updated.toLocaleTimeString()}. Updates every 10 seconds.` : 'Waiting for the first update.'}</p><button type="button" onClick={load} className="text-green-700 underline">Refresh deliveries</button></div>
+        <DeliveryOverview trips={trips} selectedId={selectedTrip} onSelect={setSelectedTrip} showStops={false} />
+      </Section>
 
       <Section text1={'NEEDS'} text2={'ATTENTION'}>
         {exceptions.length === 0 && <p className="text-sm text-gray-600">Every waiting order can be scheduled.</p>}
@@ -551,7 +521,7 @@ export const ManagerDelivery = () => {
         {trips && shownTrips.length === 0 && <p className="text-gray-600">No trips here yet.</p>}
         <div>
           {shownTrips.map((trip) => (
-            <TripCard key={trip.trip_id} trip={trip} queue={queue} onChanged={load} />
+            <TripCard key={trip.trip_id} trip={trip} queue={queue} onChanged={load} onViewRoute={setSelectedTrip} />
           ))}
         </div>
       </Section>

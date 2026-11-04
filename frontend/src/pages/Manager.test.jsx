@@ -1,5 +1,5 @@
 import React from 'react'
-import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Route, Routes } from 'react-router-dom'
@@ -8,6 +8,8 @@ import { api } from '../api'
 import { renderWithProviders } from '../test/renderWithProviders'
 
 vi.mock('../api', () => ({ api: vi.fn() }))
+beforeEach(() => vi.stubEnv('VITE_MAPBOX_ACCESS_TOKEN', ''))
+afterEach(() => vi.unstubAllEnvs())
 
 const manager = { user_id: 3, full_name: 'Mia Chen', role: 'manager' }
 const employee = { user_id: 2, full_name: 'Eli Park', role: 'employee' }
@@ -94,6 +96,7 @@ function mockApi(signedInUser = manager) {
 
     if (path === '/api/admin/orders') return { orders: data.orders }
     if (path === '/api/admin/orders/1' && method === 'GET') return { order: orderDetail }
+    if (path === '/api/admin/orders/1/tracking') return { map: null, estimated_arrival: null }
     if (path.startsWith('/api/admin/orders/') && method === 'PATCH') return { order: order() }
 
     if (path === '/api/admin/delivery/queue') return { orders: data.queue }
@@ -246,7 +249,7 @@ describe('ManagerDelivery', () => {
     data.trips = [trip()]
     renderWithProviders(<ManagerDelivery />, { route: '/manager/delivery' })
 
-    expect(await screen.findByText(/OFS-0004/)).toBeInTheDocument()
+    expect(await screen.findByText(/OFS-0004/, { selector: 'span' })).toBeInTheDocument()
     expect(screen.getByText(/Ben Cho/)).toBeInTheDocument()
     expect(screen.getByText(/Route planned with the offline demo provider/)).toBeInTheDocument()
 
@@ -259,7 +262,7 @@ describe('ManagerDelivery', () => {
     const user = userEvent.setup()
     data.trips = [trip()]
     renderWithProviders(<ManagerDelivery />, { route: '/manager/delivery' })
-    await screen.findByText(/OFS-0004/)
+    await screen.findByText(/OFS-0004/, { selector: 'span' })
 
     await user.click(screen.getByRole('button', { name: 'Remove OFS-0004 from trip 1' }))
 

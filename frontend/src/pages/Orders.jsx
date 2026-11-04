@@ -3,6 +3,7 @@ import { Link, Navigate, useLocation, useParams } from 'react-router-dom'
 import { StoreContext } from '../context/StoreContext'
 import { api } from '../api'
 import DeliveryMap from '../components/DeliveryMap'
+import ArrivalEstimate from '../components/ArrivalEstimate'
 import TextContent from '../components/TextContent'
 import TrackOrder from './TrackOrder'
 
@@ -94,25 +95,33 @@ export const OrderDetail = () => {
 
   useEffect(() => {
     if (!ready) return
-    const load = () => Promise.all([
-      api(`/api/orders/${orderNumber}`),
-      api(`/api/orders/${orderNumber}/tracking`),
-    ]).then(([detail, track]) => {
-      setOrder(detail.order)
-      setTracking(track)
-    }).catch((err) => setError(err.message))
+    let current = true
+    let loading = false
+    setOrder(null)
+    setTracking(null)
+    setError('')
+    const load = async () => {
+      if (loading) return
+      loading = true
+      try {
+        const [detail, track] = await Promise.all([
+          api(`/api/orders/${orderNumber}`), api(`/api/orders/${orderNumber}/tracking`),
+        ])
+        if (current) { setOrder(detail.order); setTracking(track); setError('') }
+      } catch (err) { if (current) setError(err.message) }
+      finally { loading = false }
+    }
 
     load()
     // Delivery updates arrive on their own, so check again every 15 seconds.
     const timer = setInterval(load, 15000)
-    return () => clearInterval(timer)
+    return () => { current = false; clearInterval(timer) }
   }, [ready, orderNumber])
 
   if (redirect) return <Navigate to={redirect} replace />
-  if (error) return <p className="pt-14 text-center text-red-600">{error}</p>
-  if (!order || !tracking) return null
+  if (!order || !tracking) return <p className="pt-14 text-center" role={error ? 'alert' : 'status'}>{error || 'Loading your order...'}</p>
 
-  return <OrderView order={order} tracking={tracking} justPlaced={state?.justPlaced} footer={<Link to="/orders" className="text-sm text-green-600 underline">See all my orders</Link>} />
+  return <>{error && <p role="alert" className="mt-4 text-sm text-red-700">Tracking could not refresh. Showing the last successful update: {error}</p>}<OrderView order={order} tracking={tracking} justPlaced={state?.justPlaced} footer={<Link to="/orders" className="text-sm text-green-600 underline">See all my orders</Link>} /></>
 }
 
 export const OrderView = ({ order, tracking, justPlaced, footer }) => {
@@ -147,10 +156,8 @@ export const OrderView = ({ order, tracking, justPlaced, footer }) => {
           </li>
         ))}
       </ol>
-      {tracking.estimated_arrival && (
-        <p className="text-gray-700">Estimated arrival: <b>{formatTime(tracking.estimated_arrival)}</b></p>
-      )}
-      <DeliveryMap trackingMap={tracking.map} />
+      <ArrivalEstimate value={tracking.estimated_arrival} />
+      <DeliveryMap trackingMap={tracking.map} status={tracking.status} />
 
       {/* Items and totals */}
       <div className="flex flex-col sm:flex-row gap-10 justify-between">

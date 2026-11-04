@@ -28,6 +28,7 @@ cannot be found never reaches a trip.
 """
 
 import json
+import os
 from datetime import datetime, timedelta
 from decimal import Decimal
 
@@ -35,7 +36,7 @@ from flask import Blueprint, request
 
 import db
 import rules
-from common import MANAGER, ApiError, body, current_user, ok, require_int, require_role
+from common import MANAGER, STAFF, ApiError, body, current_user, ok, require_int, require_role
 from order_status import change_status
 from services import mapping
 from services import vehicle as vehicle_service
@@ -96,6 +97,7 @@ def trip_json(trip, stops=None):
         route = json.loads(route)
     return {
         "trip_id": trip["trip_id"],
+        "vehicle_mode": os.environ.get("VEHICLE_LINK", "simulated"),
         "status": trip["status"],
         "vehicle": {
             "vehicle_id": vehicle["vehicle_id"],
@@ -350,6 +352,28 @@ def get_trip(trip_id):
     return ok(trip=trip_json(_trip(trip_id)))
 
 
+@delivery_bp.get("/api/staff/delivery/trips")
+@require_role(*STAFF)
+def staff_trips():
+    """Read-only fleet view. Contact details and payment data stay private.
+
+    This does not grant employees any of the manager's dispatch, order,
+    payment, or trip-editing permissions.
+    """
+    rows = db.query_all("SELECT * FROM delivery_trips ORDER BY trip_id DESC")
+    trips = []
+    for row in rows:
+        trip = trip_json(row)
+        trip["stops"] = [
+            {key: value for key, value in stop.items()
+             if key in ("order_id", "order_number", "status", "latitude", "longitude",
+                        "weight_lb", "stop_sequence", "est_arrival", "delivered_at")}
+            for stop in trip["stops"]
+        ]
+        trips.append(trip)
+    return ok(trips=trips)
+
+
 def _require_planned(trip):
     if trip["status"] != "planned":
         raise ApiError("This trip has already been dispatched and can no longer change",
@@ -428,6 +452,17 @@ def dispatch(trip_id):
             raise ApiError("Plan the route before dispatching", 409, "NO_ROUTE")
         if vehicle["status"] != "available":
             raise ApiError(f"{vehicle['name']} is not available", 409, "VEHICLE_BUSY")
+
+        # Arrival times were calculated when the route was planned. A
+        # trip may wait a long time before dispatch; preserve the travel
+        # offsets but start the clock at the actual departure.
+        cur.execute(
+            "UPDATE trip_orders t JOIN delivery_trips d ON d.trip_id = t.trip_id "
+            "SET t.est_arrival = TIMESTAMPADD(SECOND, "
+            "GREATEST(0, TIMESTAMPDIFF(SECOND, d.route_planned_at, NOW())), t.est_arrival) "
+            "WHERE t.trip_id = %s AND t.delivered_at IS NULL", (trip_id,),
+        )
+        stops = _stops(trip_id, cur)
 
         cur.execute("UPDATE delivery_trips SET status = 'out_for_delivery', started_at = NOW() "
                     "WHERE trip_id = %s", (trip_id,))

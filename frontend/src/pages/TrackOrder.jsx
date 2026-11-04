@@ -11,11 +11,13 @@ const TrackOrder = () => {
   const [looking, setLooking] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
+  const [refreshError, setRefreshError] = useState('')
   const searched = useRef(null)
 
   const lookUp = async (details) => {
     const data = await api('/api/orders/lookup', { method: 'POST', body: details })
     setResult({ order: data.order, tracking: data.tracking })
+    setRefreshError('')
   }
 
   const handleSubmit = async (event) => {
@@ -38,7 +40,7 @@ const TrackOrder = () => {
   useEffect(() => {
     if (!result) return
     const timer = setInterval(() => {
-      if (searched.current) lookUp(searched.current).catch(() => {})
+      if (searched.current) lookUp(searched.current).catch(() => setRefreshError('Tracking could not refresh. Showing the last successful update; retrying in 15 seconds.'))
     }, 15000)
     return () => clearInterval(timer)
   }, [result !== null])
@@ -84,6 +86,7 @@ const TrackOrder = () => {
         </p>
       </form>
 
+      {result && refreshError && <p role="alert" className="text-sm text-amber-800">{refreshError}</p>}
       {result && <OrderView order={result.order} tracking={result.tracking} />}
     </div>
   )
