@@ -13,6 +13,7 @@ import { StoreContext } from './context/StoreContext'
 import Inventory from './pages/Inventory'
 import TrackOrder from './pages/TrackOrder'
 import { ManagerDelivery, ManagerOrders } from './pages/Manager'
+import EmployeeDelivery from './pages/EmployeeDelivery'
 
 const App = () => {
 
@@ -42,6 +43,7 @@ const App = () => {
         <Route path="/track-order" element={<TrackOrder />} />
         <Route path="/orders/:orderNumber" element={<OrderDetail />} />
         <Route path="/inventory" element={<Inventory />} />
+        <Route path="/delivery" element={<EmployeeDelivery />} />
         <Route path="/manager" element={<ManagerOrders />} />
         <Route path="/manager/delivery" element={<ManagerDelivery />} />
       </Routes>

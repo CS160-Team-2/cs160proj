@@ -15,6 +15,43 @@ leave it at zero and report stops themselves.
 
 import os
 import threading
+import json
+import logging
+import math
+
+
+def position_on_path(path, fraction):
+    """Interpolate by distance, not vertex count, along [latitude, longitude]."""
+    if len(path) == 1:
+        return path[0]
+    distances = [math.hypot(b[0] - a[0], (b[1] - a[1]) *
+                            math.cos(math.radians((a[0] + b[0]) / 2)))
+                 for a, b in zip(path, path[1:])]
+    remaining = sum(distances) * min(1, max(0, fraction))
+    for a, b, distance in zip(path, path[1:], distances):
+        if distance and remaining <= distance:
+            ratio = remaining / distance
+            return [a[0] + (b[0] - a[0]) * ratio, a[1] + (b[1] - a[1]) * ratio]
+        remaining -= distance
+    return path[-1]
+
+
+def route_segments(path, stops):
+    """Cut the saved road geometry at the nearest vertex to each stop."""
+    path = [[float(lat), float(lng)] for lat, lng in path]
+    segments = []
+    start = 0
+    for stop in stops:
+        target = [float(stop["latitude"]), float(stop["longitude"])]
+        if not path:
+            segments.append([target])
+            continue
+        end = min(range(start, len(path)),
+                  key=lambda index: (path[index][0] - target[0]) ** 2 +
+                  (path[index][1] - target[1]) ** 2)
+        segments.append(path[start:end + 1])
+        start = end
+    return segments
 
 
 class SimulatedVehicleLink:
@@ -28,26 +65,59 @@ class SimulatedVehicleLink:
         vehicle accepted the trip."""
         self.sent.append({"vehicle_id": vehicle["vehicle_id"], "trip_id": trip_id, "stops": stops})
         if self.seconds_per_stop > 0:
-            self._drive(trip_id, [s["order_id"] for s in stops])
+            self._drive(trip_id, stops)
         return True
 
-    def _drive(self, trip_id, order_ids):
+    def _drive(self, trip_id, stops):
         # Imported here: delivery imports this module, so a top-level import
         # would be circular.
         from routes.delivery import complete_stop
+        import db
 
-        def step(remaining):
-            if not remaining:
-                return
+        interval = min(2, self.seconds_per_stop / 5)
+        frames = max(1, math.ceil(self.seconds_per_stop / interval))
+        state = {"segments": None, "stop": 0, "frame": 0}
+
+        def step():
             try:
-                complete_stop(trip_id, remaining[0])
+                trip = db.query_one("SELECT status, route_json FROM delivery_trips WHERE trip_id = %s",
+                                    (trip_id,))
+                if not trip or trip["status"] != "out_for_delivery" or state["stop"] >= len(stops):
+                    return
+                if state["segments"] is None:
+                    route = trip["route_json"] or {}
+                    if isinstance(route, str):
+                        route = json.loads(route)
+                    state["segments"] = route_segments(route.get("path", []), stops)
+                state["frame"] += 1
+                latitude, longitude = position_on_path(
+                    state["segments"][state["stop"]], state["frame"] / frames)
+                arrived = state["frame"] >= frames
+                with db.transaction() as cur:
+                    cur.execute(
+                        "UPDATE delivery_trips SET last_latitude = %s, last_longitude = %s, "
+                        "last_report = %s, last_report_at = NOW() "
+                        "WHERE trip_id = %s AND status = 'out_for_delivery'",
+                        (round(latitude, 6), round(longitude, 6),
+                         "at_stop" if arrived else "en_route", trip_id),
+                    )
+                if arrived:
+                    status = complete_stop(trip_id, stops[state["stop"]]["order_id"])
+                    if status == "completed":
+                        with db.transaction() as cur:
+                            cur.execute("UPDATE delivery_trips SET last_report = 'completed', "
+                                        "last_report_at = NOW() WHERE trip_id = %s", (trip_id,))
+                        return
+                    state["stop"] += 1
+                    state["frame"] = 0
             except Exception:                         # noqa: BLE001
-                return    # trip changed under us; a simulation just stops
-            timer = threading.Timer(self.seconds_per_stop, step, [remaining[1:]])
+                logging.getLogger(__name__).exception("Vehicle simulation stopped for trip %s", trip_id)
+                return
+            timer = threading.Timer(interval, step)
             timer.daemon = True
             timer.start()
 
-        timer = threading.Timer(self.seconds_per_stop, step, [order_ids])
+        timer = threading.Timer(interval, step)
         timer.daemon = True
         timer.start()
 
