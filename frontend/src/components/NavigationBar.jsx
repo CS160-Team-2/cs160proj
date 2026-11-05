@@ -1,7 +1,8 @@
 import React, { useContext, useState } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { StoreContext } from '../context/StoreContext'
-import { HomeIcon, ProfileIcon, ShoppingCartIcon } from './Icons'
+import { ProfileIcon, ShoppingCartIcon } from './Icons'
+import logo from '../assets/ofs_logo_nav.png'
 
 const NavigationBar = () => {
 
@@ -16,10 +17,9 @@ const NavigationBar = () => {
   }
 
   return (
-    <div className="flex items-center justify-between px-7 py-2 font-semibold bg-green-600 fixed w-full top-0 z-50">
-      <Link to="/" className="flex items-center gap-2 text-white">
-        <HomeIcon className="w-8" />
-        <span className="text-xl tracking-wide">OFS</span>
+    <div className="flex items-center justify-between h-14 px-7 py-2 font-semibold bg-green-600 fixed w-full top-0 z-50">
+      <Link to="/" className="flex items-center" aria-label="OFS home">
+        <img src={logo} alt="OFS" className="h-10 w-auto" />
       </Link>
 
       <ul className="hidden sm:flex gap-5 text-sm text-white">

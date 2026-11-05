@@ -29,7 +29,7 @@ const App = () => {
     <>
     <NavigationBar />
 
-    <div className="pt-16 px-4 sm:px-[5vw] md:px-[7vw] lg:px-[9vw]">
+    <div className="pt-14 px-4 sm:px-[5vw] md:px-[7vw] lg:px-[9vw]">
       {productsError && (
         <p className="mt-4 p-3 bg-red-50 text-red-700 text-sm" role="alert">{productsError}</p>
       )}
