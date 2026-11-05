@@ -24,7 +24,7 @@ from pymysql.err import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import db
-from common import (ANY_USER, MANAGER, ApiError, body, current_user, ok,
+from common import (ANY_USER, CUSTOMER, MANAGER, ApiError, body, current_user, ok,
                     optional_text, require_role, require_text, user_json)
 from routes import cart as cart_routes
 
@@ -164,6 +164,49 @@ def update_me():
 
     _update_user(user["user_id"], changes)
     return ok(user=user_json(_load_user(user["user_id"])))
+
+
+@auth_bp.delete("/api/users/me")
+@require_role(*CUSTOMER)
+def delete_me():
+    """Body: password. Closes the customer's own account.
+
+    Past orders and payments are business records, so the account row stays
+    but is anonymised and deactivated: the name, email, phone and password
+    are replaced, the cart is emptied, and saved addresses are removed (the
+    ones that past orders were delivered to are only hidden). The email
+    becomes free to register again. Refused while an order is still on its
+    way."""
+    user = current_user()
+    if user.get("is_guest"):
+        raise ApiError("Guest checkouts have no account to delete", 400, "GUEST_ACCOUNT")
+
+    stored = db.query_one("SELECT password_hash FROM users WHERE user_id = %s", (user["user_id"],))
+    password = body().get("password")
+    if not isinstance(password, str) or not check_password_hash(stored["password_hash"], password):
+        raise ApiError("Password is incorrect", 403, "WRONG_PASSWORD")
+
+    active = db.query_one(
+        "SELECT COUNT(*) AS n FROM orders WHERE user_id = %s AND status <> 'delivered'",
+        (user["user_id"],))
+    if active["n"]:
+        raise ApiError("You still have orders that have not been delivered. "
+                       "You can delete your account once they arrive.", 409, "ACTIVE_ORDERS")
+
+    user_id = user["user_id"]
+    with db.transaction() as cur:
+        cart_routes.clear(cur, user_id)
+        cur.execute("DELETE FROM carts WHERE user_id = %s", (user_id,))
+        cur.execute(
+            "DELETE FROM addresses WHERE user_id = %s AND address_id NOT IN "
+            "(SELECT address_id FROM orders WHERE user_id = %s)", (user_id, user_id))
+        cur.execute("UPDATE addresses SET is_deleted = TRUE WHERE user_id = %s", (user_id,))
+        cur.execute(
+            "UPDATE users SET email = %s, full_name = 'Deleted customer', phone = NULL, "
+            "contact_email = NULL, password_hash = %s, is_active = FALSE WHERE user_id = %s",
+            (f"deleted-{user_id}@deleted.ofs.invalid", "!", user_id))
+    session.clear()
+    return ok(message="Your account has been deleted")
 
 
 def _update_user(user_id, changes):

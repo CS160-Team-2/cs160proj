@@ -12,6 +12,7 @@ import Footer from './components/Footer'
 import { StoreContext } from './context/StoreContext'
 import Inventory from './pages/Inventory'
 import TrackOrder from './pages/TrackOrder'
+import Account from './pages/Account'
 import { ManagerDelivery, ManagerOrders } from './pages/Manager'
 import EmployeeDelivery from './pages/EmployeeDelivery'
 
@@ -41,6 +42,7 @@ const App = () => {
         <Route path="/checkout" element={<Checkout />} />
         <Route path="/orders" element={<OrderHistory />} />
         <Route path="/track-order" element={<TrackOrder />} />
+        <Route path="/account" element={<Account />} />
         <Route path="/orders/:orderNumber" element={<OrderDetail />} />
         <Route path="/inventory" element={<Inventory />} />
         <Route path="/delivery" element={<EmployeeDelivery />} />

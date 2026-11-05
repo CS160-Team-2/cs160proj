@@ -50,7 +50,11 @@ const NavigationBar = () => {
             <div className="absolute right-0 mt-2 w-44 bg-white text-gray-700 text-sm shadow-md flex flex-col py-2">
               {user ? (
                 <>
-                  <p className="px-4 py-1 text-xs text-gray-500 truncate">{user.full_name}</p>
+                  {user.role === 'customer' && !user.is_guest ? (
+                    <Link to="/account" onClick={() => setMenuOpen(false)} title="My account" className="px-4 py-2 font-medium text-gray-800 truncate hover:bg-gray-100">{user.full_name}</Link>
+                  ) : (
+                    <p className="px-4 py-1 text-xs text-gray-500 truncate">{user.full_name}</p>
+                  )}
                   {user.role === 'customer' && (
                     <Link to="/orders" onClick={() => setMenuOpen(false)} className="px-4 py-2 hover:bg-gray-100">My orders</Link>
                   )}

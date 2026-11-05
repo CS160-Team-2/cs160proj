@@ -111,6 +111,7 @@ const StoreContextProvider = (props) => {
         signIn,
         register,
         guestCheckout,
+        updateUser: setUser,
         signOut,
         cart,
         cartItems: cart.items.map(withImage),

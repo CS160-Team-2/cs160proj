@@ -28,6 +28,7 @@ const RelatedItems = ({ id, category }) => {
                            image={item.image}
                            price={item.price}
                            weight={item.unit_weight_lb}
+                           stock={item.stock}
                            available={item.available}
                 />
             ))
