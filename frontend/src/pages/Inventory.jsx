@@ -4,6 +4,7 @@ import { StoreContext } from '../context/StoreContext'
 import { api } from '../api'
 import { imageFor } from '../productImage'
 import TextContent from '../components/TextContent'
+import ManifestUpload from '../components/ManifestUpload'
 
 const uploadImage = (productId, file) => {
   const data = new FormData()
@@ -433,6 +434,8 @@ const Inventory = () => {
           />
         </div>
       )}
+
+      {user.role === 'manager' && <ManifestUpload onApplied={load} />}
 
       {notice && <p className="mb-4 text-sm text-green-600">{notice}</p>}
       {error && <p className="text-sm text-red-600">{error}</p>}
