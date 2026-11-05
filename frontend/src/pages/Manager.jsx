@@ -172,7 +172,7 @@ const OrderRow = ({ order, currency, onChanged }) => {
           </div>
           <div className="flex flex-col gap-1">
             <p className="font-medium">Customer and address</p>
-            <p className="text-gray-600">{detail.customer.full_name} · {detail.customer.email}{detail.customer.phone ? ` · ${detail.customer.phone}` : ''}</p>
+            <p className="text-gray-600">{detail.customer.full_name}{detail.customer.is_guest ? ' (guest checkout)' : ''} · {detail.customer.email}{detail.customer.phone ? ` · ${detail.customer.phone}` : ''}</p>
             <p className="text-gray-600">{detail.address.street}, {detail.address.city}, {detail.address.state} {detail.address.zip_code}</p>
             <p className="text-gray-500">{detail.payment ? `Paid with a card ending ${detail.payment.card_last4}` : 'No approved payment on record'}</p>
           </div>
