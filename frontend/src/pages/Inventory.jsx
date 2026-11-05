@@ -20,7 +20,7 @@ const isStaff = (user) => user && (user.role === 'employee' || user.role === 'ma
 const maxImageBytes = 5 * 1024 * 1024
 const imageTypes = ['image/jpeg', 'image/png', 'image/webp']
 
-const ProductForm = ({ initial, withStock, submitLabel, onSubmit, onCancel }) => {
+const ProductForm = ({ initial, categories, withStock, submitLabel, onSubmit, onCancel }) => {
 
   const [form, setForm] = useState(initial)
   const [error, setError] = useState('')
@@ -86,6 +86,10 @@ const ProductForm = ({ initial, withStock, submitLabel, onSubmit, onCancel }) =>
       setError('Weight is required and must be greater than 0.')
       return
     }
+    if (!values.category) {
+      setError('Choose a category.')
+      return
+    }
     if (withStock && values.stock !== '' && !/^\d+$/.test(values.stock)) {
       setError('Starting stock must be a whole number.')
       return
@@ -109,20 +113,23 @@ const ProductForm = ({ initial, withStock, submitLabel, onSubmit, onCancel }) =>
         value={form.name}
         onChange={change('name')}
       />
-      <input
-        className="border px-3 py-2"
-        type="text"
-        placeholder="Category"
+      <select
+        className="border px-3 py-2 bg-white cursor-pointer"
         aria-label="Category"
         value={form.category}
         onChange={change('category')}
-      />
+      >
+        <option value="">Category (required)</option>
+        {(categories.includes(form.category) || !form.category ? categories : [...categories, form.category]).map((category) => (
+          <option key={category} value={category}>{category}</option>
+        ))}
+      </select>
       <input
         className="border px-3 py-2"
         type="number"
         step="0.01"
         min="0"
-        placeholder="Price"
+        placeholder="Price (required)"
         aria-label="Price"
         value={form.price}
         onChange={change('price')}
@@ -159,7 +166,7 @@ const ProductForm = ({ initial, withStock, submitLabel, onSubmit, onCancel }) =>
           <label className="text-gray-700">
             Product picture (JPEG, PNG or WebP, up to 5 MB)
             <input
-              className="block mt-1"
+              className="block mt-1 file:mr-3 file:cursor-pointer file:border file:border-gray-400 file:bg-gray-100 file:px-4 file:py-1.5 file:text-sm file:text-gray-700 hover:file:bg-gray-200"
               type="file"
               accept="image/jpeg,image/png,image/webp"
               aria-label="Product picture"
@@ -192,7 +199,7 @@ const ProductForm = ({ initial, withStock, submitLabel, onSubmit, onCancel }) =>
 }
 
 // One product in the list: change its stock, edit it, or take it off sale.
-const InventoryRow = ({ item, currency, onChanged }) => {
+const InventoryRow = ({ item, currency, categories, onChanged }) => {
 
   const [amount, setAmount] = useState('')
   const [message, setMessage] = useState('')
@@ -260,6 +267,7 @@ const InventoryRow = ({ item, currency, onChanged }) => {
       <div className="py-4 border-t border-b text-gray-700">
         <p className="font-medium mb-3">Edit product</p>
         <ProductForm
+          categories={categories}
           initial={{
             name: item.name,
             category: item.category,
@@ -278,7 +286,7 @@ const InventoryRow = ({ item, currency, onChanged }) => {
   }
 
   return (
-    <div className="py-4 border-t border-b text-gray-700 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+    <div className="py-4 border-t border-b text-gray-700 flex flex-col gap-3 sm:grid sm:grid-cols-[minmax(0,1fr)_9rem_16rem] sm:items-center sm:gap-4">
       <div className="flex items-center gap-3">
         <img src={imageFor(item.image_key)} alt="" className="w-14 h-14 object-cover border" />
         <div>
@@ -286,11 +294,15 @@ const InventoryRow = ({ item, currency, onChanged }) => {
           <p className="text-sm text-gray-500">{item.category} · {currency}{item.price} · {item.unit_weight_lb} lb</p>
         </div>
       </div>
-      <p className="text-sm">
-        In stock: <span className="font-medium">{item.stock}</span>
-        {item.low_stock && <span className="ml-2 text-red-600">LOW</span>}
-        {!item.is_listed && <span className="ml-2 text-gray-500">UNLISTED</span>}
-      </p>
+      <div className="text-sm">
+        <p>In stock: <span className="font-medium">{item.stock}</span></p>
+        {(item.low_stock || !item.is_listed) && (
+          <p className="flex gap-2 mt-0.5 text-xs">
+            {item.low_stock && <span className="text-red-600">LOW</span>}
+            {!item.is_listed && <span className="text-gray-500">UNLISTED</span>}
+          </p>
+        )}
+      </div>
       <div>
         <div className="flex items-center gap-2">
           <input
@@ -323,6 +335,9 @@ const Inventory = () => {
   const [error, setError] = useState('')
   const [adding, setAdding] = useState(false)
   const [notice, setNotice] = useState('')
+  const [knownCategories, setKnownCategories] = useState([])
+
+  const categories = [...new Set([...knownCategories, ...(items || []).map((item) => item.category), 'Other'])].sort()
 
   const load = () => {
     const params = new URLSearchParams()
@@ -339,6 +354,10 @@ const Inventory = () => {
   useEffect(() => {
     if (isStaff(user)) load()
   }, [user, search, availability])
+
+  useEffect(() => {
+    if (isStaff(user)) api('/api/categories').then((data) => setKnownCategories(data.categories)).catch(() => {})
+  }, [user])
 
   const addProduct = async (values) => {
     const body = {
@@ -403,6 +422,7 @@ const Inventory = () => {
         <div className="mb-6 border p-4 text-gray-700">
           <p className="font-medium mb-3">New product</p>
           <ProductForm
+            categories={categories}
             initial={{ name: '', category: '', price: '', weight: '', description: '', stock: '' }}
             withStock
             submitLabel="ADD"
@@ -416,7 +436,7 @@ const Inventory = () => {
       {error && <p className="text-sm text-red-600">{error}</p>}
       {items && items.length === 0 && <p className="text-gray-600">No products match.</p>}
       {items && items.map((item) => (
-        <InventoryRow key={item.product_id} item={item} currency={currency} onChanged={load} />
+        <InventoryRow key={item.product_id} item={item} currency={currency} categories={categories} onChanged={load} />
       ))}
     </div>
   )

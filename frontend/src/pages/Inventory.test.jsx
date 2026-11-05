@@ -173,7 +173,7 @@ describe('Inventory', () => {
 
     await user.click(screen.getByRole('button', { name: 'ADD PRODUCT' }))
     await user.type(screen.getByLabelText('Product name'), 'Pear')
-    await user.type(screen.getByLabelText('Category'), 'Fruits')
+    await user.selectOptions(screen.getByLabelText('Category'), 'Fruits')
     await user.type(screen.getByLabelText('Price'), '3.25')
     await user.type(screen.getByLabelText('Weight in lb'), '0.5')
     await user.type(screen.getByLabelText('Starting stock'), '12')
