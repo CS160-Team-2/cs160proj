@@ -86,7 +86,7 @@ const trip = (fields) => ({
 let data
 
 function mockApi(signedInUser = manager) {
-  data = { orders: [order()], queue: [], exceptions: [], vehicles: [robot()], trips: [] }
+  data = { orders: [order()], detail: orderDetail, queue: [], exceptions: [], vehicles: [robot()], trips: [] }
   api.mockImplementation(async (path, options = {}) => {
     const { method = 'GET' } = options
 
@@ -95,7 +95,7 @@ function mockApi(signedInUser = manager) {
     if (path === '/api/cart') return { cart: emptyCart }
 
     if (path === '/api/admin/orders') return { orders: data.orders }
-    if (path === '/api/admin/orders/1' && method === 'GET') return { order: orderDetail }
+    if (path === '/api/admin/orders/1' && method === 'GET') return { order: data.detail }
     if (path === '/api/admin/orders/1/tracking') return { map: null, estimated_arrival: null }
     if (path.startsWith('/api/admin/orders/') && method === 'PATCH') return { order: order() }
 
@@ -164,6 +164,20 @@ describe('ManagerOrders', () => {
     expect(await screen.findByText(/3 × Apple/)).toBeInTheDocument()
     expect(screen.getByText(/1 Main St, San Jose, CA 95112/)).toBeInTheDocument()
     expect(screen.getByText('Paid with a card ending 4242')).toBeInTheDocument()
+  })
+
+  test('labels a guest and shows the email they gave at checkout', async () => {
+    data.detail = {
+      ...orderDetail,
+      customer: { full_name: 'Grace Hopper', email: 'grace@example.com', phone: null, is_guest: true },
+    }
+    const user = userEvent.setup()
+    renderWithProviders(<ManagerOrders />, { route: '/manager' })
+    await screen.findByText('OFS-0001')
+
+    await user.click(screen.getByRole('button', { name: /OFS-0001/ }))
+
+    expect(await screen.findByText(/Grace Hopper \(guest checkout\) · grace@example\.com/)).toBeInTheDocument()
   })
 
   test('shows why an order was not scheduled', async () => {
