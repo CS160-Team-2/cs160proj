@@ -24,7 +24,7 @@ import db
 import rules
 from common import MANAGER, ApiError, body, current_user, ok, require_role
 from order_status import change_status
-from routes.orders import order_detail, order_summary, status_history
+from routes.orders import order_detail, order_summary, status_history, tracking_payload
 
 admin_orders_bp = Blueprint("admin_orders", __name__)
 
@@ -146,3 +146,10 @@ def order_payments(order_id):
         (order_id,),
     )
     return ok(payments=rows)
+
+
+@admin_orders_bp.get("/api/admin/orders/<int:order_id>/tracking")
+@require_role(*MANAGER)
+def order_tracking(order_id):
+    """The manager may inspect tracking without impersonating a customer."""
+    return ok(**tracking_payload(_order(order_id)))

@@ -54,8 +54,14 @@ const NavigationBar = () => {
                   {user.role === 'customer' && (
                     <Link to="/orders" onClick={() => setMenuOpen(false)} className="px-4 py-2 hover:bg-gray-100">My orders</Link>
                   )}
+                  {user.role === 'manager' && (
+                  <Link to="/manager" onClick={() => setMenuOpen(false)} className="px-4 py-2 hover:bg-gray-100">Manager dashboard</Link>
+                  )}
                   {(user.role === 'employee' || user.role === 'manager') && (
                     <Link to="/inventory" onClick={() => setMenuOpen(false)} className="px-4 py-2 hover:bg-gray-100">Inventory</Link>
+                  )}
+                  {(user.role === 'employee' || user.role === 'manager') && (
+                    <Link to="/delivery" onClick={() => setMenuOpen(false)} className="px-4 py-2 hover:bg-gray-100">Delivery tracking</Link>
                   )}
                   <button onClick={handleSignOut} className="px-4 py-2 text-left hover:bg-gray-100 cursor-pointer">Sign out</button>
                 </>

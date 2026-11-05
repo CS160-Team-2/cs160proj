@@ -1,5 +1,5 @@
 import React, { useContext, useEffect, useState } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import { StoreContext } from '../context/StoreContext'
 import { api } from '../api'
 import { imageFor } from '../productImage'
@@ -391,6 +391,8 @@ const Inventory = () => {
       <div className="text-2xl mb-6">
         <TextContent text1={'INVENTORY'} text2={'CONSOLE'} />
       </div>
+
+      <Link to="/delivery" className="inline-block mb-6 text-sm text-green-700 underline">View delivery tracking</Link>
 
       <div className="flex flex-wrap gap-3 mb-6">
         <input

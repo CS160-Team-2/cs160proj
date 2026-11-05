@@ -69,6 +69,10 @@ def trip_status(trip_id):
 
     latitude = require_decimal(data, "latitude") if data.get("latitude") is not None else None
     longitude = require_decimal(data, "longitude") if data.get("longitude") is not None else None
+    if (latitude is None) != (longitude is None):
+        raise ApiError("Report latitude and longitude together")
+    if latitude is not None and not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+        raise ApiError("Vehicle coordinates are outside the valid latitude/longitude range")
     with db.transaction() as cur:
         cur.execute(
             "UPDATE delivery_trips SET last_report = %s, last_latitude = COALESCE(%s, last_latitude), "

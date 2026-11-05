@@ -31,6 +31,7 @@ sees the stock is gone.
 """
 
 import json
+import os
 import re
 import secrets
 
@@ -386,6 +387,7 @@ def tracking_payload(order):
             vehicle = mapping.GeoPoint(stop["last_latitude"], stop["last_longitude"])
         route_origin = vehicle or store
         tracking_map = {
+            "vehicle_mode": os.environ.get("VEHICLE_LINK", "simulated"),
             "provider": route.get("provider", "unknown"),
             "trip_status": stop["trip_status"],
             "store": {
