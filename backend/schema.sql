@@ -116,6 +116,24 @@ CREATE TABLE inventory_log (
   INDEX inventory_log_product (product_id, log_id)
 ) ENGINE=InnoDB;
 
+-- Each delivery manifest a manager applied to restock the inventory from
+-- a CSV file. fingerprint is the SHA-256 of the file's bytes; UNIQUE, so
+-- the same file can never be applied twice, even by two managers at once.
+-- The stock changes themselves are in inventory_log, with the reason
+-- "Delivery manifest #<manifest_id> (<filename>)".
+CREATE TABLE delivery_manifests (
+  manifest_id  BIGINT AUTO_INCREMENT PRIMARY KEY,
+  fingerprint  CHAR(64)     NOT NULL UNIQUE,
+  filename     VARCHAR(255) NOT NULL,
+  applied_by   BIGINT       NOT NULL,
+  line_count   INT          NOT NULL,
+  total_units  INT          NOT NULL,
+  applied_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (applied_by) REFERENCES users(user_id),
+  CHECK (line_count > 0),
+  CHECK (total_units > 0)
+) ENGINE=InnoDB;
+
 
 -- --- Cart -------------------------------------------------------------
 

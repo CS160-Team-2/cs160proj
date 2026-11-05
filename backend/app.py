@@ -46,6 +46,7 @@ from routes.delivery import delivery_bp
 from routes.fleet import fleet_bp
 from routes.guest import guest_bp
 from routes.inventory import inventory_bp
+from routes.manifests import manifests_bp
 from routes.orders import orders_bp
 from routes.product_images import product_images_bp
 
@@ -90,7 +91,7 @@ def create_app():
     CORS(app, resources={r"/api/*": {"origins": [frontend_origin]}}, supports_credentials=True)
 
     for blueprint in (auth_bp, addresses_bp, catalog_bp, cart_bp, orders_bp,
-                      admin_orders_bp, inventory_bp, delivery_bp, fleet_bp, guest_bp, product_images_bp):
+                      admin_orders_bp, inventory_bp, manifests_bp, delivery_bp, fleet_bp, guest_bp, product_images_bp):
         app.register_blueprint(blueprint)
 
     @app.get("/api/health")
