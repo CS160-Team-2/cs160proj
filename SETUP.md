@@ -419,7 +419,51 @@ Two terminals, every time (a third for `pytest`, `curl` and git):
 
 Run them from the repository root. MySQL runs as a background service and starts with your computer, so you do not start it by hand.
 
-**After pulling new code**, run `npm install` in `frontend/` and `pip install -r requirements.txt` (venv active) if `package.json` or `requirements.txt` changed. If `backend/schema.sql` changed, run it again as in Part 2.
+**After pulling new code**, run `npm install` in `frontend/` and `pip install -r requirements.txt` (venv active) if `package.json` or `requirements.txt` changed. If `backend/schema.sql` changed, update your database as in [Updating your database after a pull](#updating-your-database-after-a-pull).
+
+## Updating your database after a pull
+
+**In short:** everyone has their own database on their own computer, so when a pull changes `backend/schema.sql`, each person updates their own copy. You can either rebuild it from scratch, which is simplest but erases your local data, or add only what changed, which keeps your data. The automated tests need nothing from you: they rebuild their own test database every run.
+
+### The current change: delivery manifests
+
+The delivery manifest upload on the Inventory page needs a new table, `delivery_manifests`. If your database does not have it, the Inventory page still works, but uploading a manifest fails with an error about a missing `delivery_manifests` table. Pick **one** of the two options below.
+
+**Option A: rebuild from scratch (erases your local data)**
+
+This resets `ofs` to the demo data. Orders, accounts you registered and products you added or edited are lost. Run `backend/schema.sql` as root exactly as in [Part 2](#part-2--set-up-the-database-in-mysql-workbench), or from the repository root:
+
+```bash
+mysql -u root -p < backend/schema.sql
+```
+
+**Option B: add only the new table (keeps your local data)**
+
+The file `backend/updates/add_delivery_manifests.sql` adds the table and changes nothing else. It is safe to run more than once.
+
+*With MySQL Workbench:* connect as root, choose **File → Open SQL Script**, pick `backend/updates/add_delivery_manifests.sql`, and click the lightning bolt to run it.
+
+*With the terminal (local MySQL on port 3306),* from the repository root:
+
+```bash
+mysql -u root -p < backend/updates/add_delivery_manifests.sql
+```
+
+*If you use the Docker database from Part 2.4 as your `ofs` database,* start it first, then from the repository root:
+
+```bash
+docker exec -i ofs-mysql-test mysql -ucs160team2 -pteam2_password < backend/updates/add_delivery_manifests.sql
+```
+
+MySQL may warn that using a password on the command line is insecure. That is expected for this shared demo password and can be ignored.
+
+**Check that it worked:** restart Flask, sign in as the manager (`manager@ofs.test`), open **Inventory**, and choose a CSV file under **Delivery manifest**. You should see a preview table, not an error. A CSV file needs a header line with `product_name` and `quantity`, and any product name that contains a comma must be in double quotes:
+
+```text
+product_name,quantity
+"Organic Apples, 3 lb bag",24
+Organic Broccoli Crown,30
+```
 
 ## Configuration reference
 
@@ -497,7 +541,7 @@ The "Add python.exe to PATH" box was missed during install. Re-run the installer
 New frontend packages were added. Run `npm install` in `frontend/`, then start Vite again.
 
 **14. After a pull: `Unknown column 'is_guest'` or another database error**
-The database layout changed. Run `backend/schema.sql` again as root (Part 2). This resets `ofs` to the seed data.
+The database layout changed. Run `backend/schema.sql` again as root (Part 2). This resets `ofs` to the seed data. To keep your data instead, see [Updating your database after a pull](#updating-your-database-after-a-pull); for example, an error about a missing `delivery_manifests` table is fixed there with Option B.
 
 **15. The shop says "Cannot reach the store right now"**
 Flask is not running, or Vite is not on port 5173 (see #6 and #11). Check <http://localhost:5001/api/health> in a browser.
