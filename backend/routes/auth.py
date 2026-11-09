@@ -241,6 +241,58 @@ def _staff_role(data):
     return role
 
 
+def _lock_staff(cur):
+    """Serialize staff changes and re-check permission using current rows.
+
+    Two managers may both pass the request's initial role check, then try
+    to remove each other. Taking the same ordered locks before either
+    mutation makes the second request see the first request's committed
+    role/active changes instead of relying on its cached sign-in data.
+    """
+    cur.execute(
+        "SELECT user_id, role, is_active FROM users "
+        "WHERE role IN ('employee', 'manager') ORDER BY user_id FOR UPDATE"
+    )
+    staff = {row["user_id"]: row for row in cur.fetchall()}
+    actor = staff.get(current_user()["user_id"])
+    if actor is None or not actor["is_active"]:
+        raise ApiError("Please sign in again", 401, "UNAUTHENTICATED")
+    if actor["role"] != "manager":
+        raise ApiError("Your account does not have access to this", 403, "FORBIDDEN")
+    return staff
+
+
+def _change_staff(user_id, changes):
+    """Apply validated fields with self/last-manager protection in one transaction."""
+    try:
+        with db.transaction() as cur:
+            staff = _lock_staff(cur)
+            target = staff.get(user_id)
+            if target is None:
+                raise ApiError("No staff account with that id", 404, "NOT_FOUND")
+            if user_id == current_user()["user_id"]:
+                if changes.get("is_active") is False:
+                    raise ApiError("You cannot deactivate your own account", 409,
+                                   "SELF_DEACTIVATION")
+                if changes.get("role", "manager") != "manager":
+                    raise ApiError("You cannot remove your own manager role", 409,
+                                   "SELF_DEMOTION")
+            removing_manager = (
+                target["role"] == "manager" and target["is_active"] and
+                (changes.get("role", "manager") != "manager" or
+                 changes.get("is_active") is False)
+            )
+            active_managers = sum(row["role"] == "manager" and bool(row["is_active"])
+                                  for row in staff.values())
+            if removing_manager and active_managers <= 1:
+                raise ApiError("At least one active manager must remain", 409, "LAST_MANAGER")
+            assignments = ", ".join(f"{column} = %s" for column in changes)
+            cur.execute(f"UPDATE users SET {assignments} WHERE user_id = %s",
+                        (*changes.values(), user_id))
+    except IntegrityError:
+        raise ApiError("An account with that email already exists", 409, "EMAIL_TAKEN") from None
+
+
 @auth_bp.get("/api/admin/staff")
 @require_role(*MANAGER)
 def list_staff():
@@ -261,7 +313,18 @@ def create_staff():
     role = _staff_role(data)
     phone = optional_text(data, "phone", 30)
 
-    user_id = _create_user(email, password, full_name, role, phone)
+    password_hash = _hash(password)
+    try:
+        with db.transaction() as cur:
+            _lock_staff(cur)
+            cur.execute(
+                "INSERT INTO users (email, password_hash, full_name, phone, role) "
+                "VALUES (%s, %s, %s, %s, %s)",
+                (email, password_hash, full_name, phone, role),
+            )
+            user_id = cur.lastrowid
+    except IntegrityError:
+        raise ApiError("An account with that email already exists", 409, "EMAIL_TAKEN") from None
     return ok(201, staff=_staff_json(_load_user(user_id)))
 
 
@@ -271,7 +334,6 @@ def update_staff(user_id):
     """Body: any of full_name, phone, email, role, is_active (true only,
     to reactivate; use DELETE to deactivate)."""
     data = body()
-    _load_staff(user_id)
     changes = {}
 
     if "full_name" in data:
@@ -282,8 +344,6 @@ def update_staff(user_id):
         changes["email"] = _valid_email(data)
     if "role" in data:
         changes["role"] = _staff_role(data)
-        if user_id == current_user()["user_id"] and changes["role"] != "manager":
-            raise ApiError("You cannot remove your own manager role", 409, "SELF_DEMOTION")
     if "is_active" in data:
         if data["is_active"] is not True:
             raise ApiError("Use DELETE to deactivate an account")
@@ -292,16 +352,12 @@ def update_staff(user_id):
     if not changes:
         raise ApiError("Nothing to update")
 
-    _update_user(user_id, changes)
+    _change_staff(user_id, changes)
     return ok(staff=_staff_json(_load_user(user_id)))
 
 
 @auth_bp.delete("/api/admin/staff/<int:user_id>")
 @require_role(*MANAGER)
 def deactivate_staff(user_id):
-    _load_staff(user_id)
-    if user_id == current_user()["user_id"]:
-        raise ApiError("You cannot deactivate your own account", 409, "SELF_DEACTIVATION")
-    with db.transaction() as cur:
-        cur.execute("UPDATE users SET is_active = FALSE WHERE user_id = %s", (user_id,))
+    _change_staff(user_id, {"is_active": False})
     return ok(staff=_staff_json(_load_user(user_id)))

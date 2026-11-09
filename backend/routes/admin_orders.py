@@ -17,6 +17,7 @@ Any request that goes backwards or skips a step is refused.
 """
 
 from datetime import date, timedelta
+import re
 
 from flask import Blueprint, request
 
@@ -50,6 +51,8 @@ def _date_arg(name):
     if not raw:
         return None
     try:
+        if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", raw):
+            raise ValueError
         return date.fromisoformat(raw)
     except ValueError:
         raise ApiError(f"{name} must be a date like 2026-10-07") from None
@@ -68,12 +71,30 @@ def list_orders():
         params.append(status)
 
     start, end = _date_arg("from"), _date_arg("to")
+    if start and end and start > end:
+        raise ApiError("From date must be on or before To date", code="INVALID_DATE_RANGE")
     if start:
         where.append("o.placed_at >= %s")
         params.append(start)
-    if end:
+    # All MySQL DATETIME values already fit within date.max. Avoid
+    # overflowing Python's date when the final supported day is requested.
+    if end and end != date.max:
         where.append("o.placed_at < %s")           # 'to' includes that whole day
         params.append(end + timedelta(days=1))
+
+    query = request.args.get("q", "").strip()
+    if len(query) > 255:
+        raise ApiError("Search must be 255 characters or fewer")
+    if query:
+        # Treat search text literally: '%' and '_' must not turn a search
+        # into a match-all wildcard. Parameters also keep quotes as data.
+        escaped = query.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+        pattern = f"%{escaped}%"
+        where.append(
+            "(o.order_number LIKE %s ESCAPE '!' OR u.full_name LIKE %s ESCAPE '!' "
+            f"OR ({CONTACT_EMAIL}) LIKE %s ESCAPE '!')"
+        )
+        params.extend((pattern, pattern, pattern))
 
     rows = db.query_all(
         f"SELECT o.*, u.full_name AS customer_name, {CONTACT_EMAIL} AS customer_email, "

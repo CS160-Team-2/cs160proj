@@ -15,6 +15,7 @@ import TrackOrder from './pages/TrackOrder'
 import Account from './pages/Account'
 import { ManagerDelivery, ManagerOrders } from './pages/Manager'
 import EmployeeDelivery from './pages/EmployeeDelivery'
+import ManagerStaff from './pages/ManagerStaff'
 
 const App = () => {
 
@@ -48,6 +49,7 @@ const App = () => {
         <Route path="/delivery" element={<EmployeeDelivery />} />
         <Route path="/manager" element={<ManagerOrders />} />
         <Route path="/manager/delivery" element={<ManagerDelivery />} />
+        <Route path="/manager/staff" element={<ManagerStaff />} />
       </Routes>
     </div>
 
