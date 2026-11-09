@@ -1,6 +1,6 @@
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { screen } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Route, Routes } from 'react-router-dom'
 import { ManagerDelivery, ManagerOrders } from './Manager'
@@ -9,7 +9,7 @@ import { renderWithProviders } from '../test/renderWithProviders'
 
 vi.mock('../api', () => ({ api: vi.fn() }))
 beforeEach(() => vi.stubEnv('VITE_MAPBOX_ACCESS_TOKEN', ''))
-afterEach(() => vi.unstubAllEnvs())
+afterEach(() => { vi.unstubAllEnvs(); vi.useRealTimers() })
 
 const manager = { user_id: 3, full_name: 'Mia Chen', role: 'manager' }
 const employee = { user_id: 2, full_name: 'Eli Park', role: 'employee' }
@@ -86,7 +86,7 @@ const trip = (fields) => ({
 let data
 
 function mockApi(signedInUser = manager) {
-  data = { orders: [order()], detail: orderDetail, queue: [], exceptions: [], vehicles: [robot()], trips: [] }
+  data = { orders: [order()], detail: orderDetail, payments: [], paymentsError: '', filteredOrders: null, queue: [], exceptions: [], vehicles: [robot()], trips: [] }
   api.mockImplementation(async (path, options = {}) => {
     const { method = 'GET' } = options
 
@@ -95,8 +95,13 @@ function mockApi(signedInUser = manager) {
     if (path === '/api/cart') return { cart: emptyCart }
 
     if (path === '/api/admin/orders') return { orders: data.orders }
+    if (path.startsWith('/api/admin/orders?')) return { orders: data.filteredOrders ?? data.orders }
     if (path === '/api/admin/orders/1' && method === 'GET') return { order: data.detail }
     if (path === '/api/admin/orders/1/tracking') return { map: null, estimated_arrival: null }
+    if (path === '/api/admin/orders/1/payments') {
+      if (data.paymentsError) throw new Error(data.paymentsError)
+      return { payments: data.payments }
+    }
     if (path.startsWith('/api/admin/orders/') && method === 'PATCH') return { order: order() }
 
     if (path === '/api/admin/delivery/queue') return { orders: data.queue }
@@ -178,6 +183,156 @@ describe('ManagerOrders', () => {
     await user.click(screen.getByRole('button', { name: /OFS-0001/ }))
 
     expect(await screen.findByText(/Grace Hopper \(guest checkout\) · grace@example\.com/)).toBeInTheDocument()
+  })
+
+  test('shows transaction details for declined, approved and refunded payment attempts', async () => {
+    const user = userEvent.setup()
+    data.payments = [
+      { transaction_id: 11, gateway_ref: 'decline-reference', status: 'declined', amount: '20.00', card_last4: '0002', failure_reason: 'card_declined', created_at: '2026-11-01T09:30:00' },
+      { transaction_id: 12, gateway_ref: 'approved-reference', status: 'approved', amount: '20.00', card_last4: '4242', failure_reason: null, created_at: '2026-11-01T09:31:00' },
+      { transaction_id: 13, gateway_ref: 'refund-reference', status: 'refunded', amount: '20.00', card_last4: '4242', failure_reason: null, created_at: '2026-11-01T09:32:00' },
+    ]
+    renderWithProviders(<ManagerOrders />, { route: '/manager' })
+    await user.click(await screen.findByRole('button', { name: /OFS-0001/ }))
+
+    const table = await screen.findByRole('table', { name: 'Payment attempts for this order' })
+    expect(within(table).getByText('11')).toBeInTheDocument()
+    expect(within(table).getByText('decline-reference')).toBeInTheDocument()
+    expect(within(table).getByText('Declined')).toBeInTheDocument()
+    expect(within(table).getByText('Approved')).toBeInTheDocument()
+    expect(within(table).getByText('Refunded')).toBeInTheDocument()
+    expect(within(table).getByText('0002')).toBeInTheDocument()
+    expect(within(table).getByText('card_declined')).toBeInTheDocument()
+    expect(within(table).getAllByText('$20.00')).toHaveLength(3)
+    expect(within(table).getAllByRole('row')).toHaveLength(4)
+  })
+
+  test('explains an empty payment history', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<ManagerOrders />, { route: '/manager' })
+    await user.click(await screen.findByRole('button', { name: /OFS-0001/ }))
+    expect(await screen.findByText('No payment attempts are recorded for this order.')).toBeInTheDocument()
+  })
+
+  test('a payment lookup failure keeps order details visible and can be retried', async () => {
+    const user = userEvent.setup()
+    data.paymentsError = 'Payment history unavailable'
+    renderWithProviders(<ManagerOrders />, { route: '/manager' })
+    await user.click(await screen.findByRole('button', { name: /OFS-0001/ }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Payment history unavailable')
+    expect(screen.getByText(/3 × Apple/)).toBeInTheDocument()
+    expect(screen.getByText(/1 Main St, San Jose, CA 95112/)).toBeInTheDocument()
+
+    data.paymentsError = ''
+    await user.click(screen.getByRole('button', { name: 'Retry payments' }))
+    expect(await screen.findByText('No payment attempts are recorded for this order.')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  test('applies search and inclusive dates together, then filters the returned orders by status', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<ManagerOrders />, { route: '/manager' })
+    await screen.findByText('OFS-0001')
+    await user.type(screen.getByRole('searchbox', { name: 'Search orders' }), 'anna@example.com')
+    fireEvent.change(screen.getByLabelText('From date'), { target: { value: '2026-11-01' } })
+    fireEvent.change(screen.getByLabelText('To date'), { target: { value: '2026-11-30' } })
+    expect(api).not.toHaveBeenCalledWith(expect.stringContaining('/api/admin/orders?'))
+    data.filteredOrders = [order(), order({ order_id: 2, order_number: 'OFS-0002', status: 'delivered' })]
+    await user.click(screen.getByRole('button', { name: 'Apply filters' }))
+
+    await waitFor(() => expect(api).toHaveBeenCalledWith('/api/admin/orders?q=anna%40example.com&from=2026-11-01&to=2026-11-30'))
+    await screen.findByText('OFS-0002')
+    await user.click(screen.getByRole('button', { name: 'Delivered (1)' }))
+    expect(screen.queryByText('OFS-0001')).not.toBeInTheDocument()
+    expect(screen.getByText('OFS-0002')).toBeInTheDocument()
+  })
+
+  test('rejects a reversed date range without requesting it', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<ManagerOrders />, { route: '/manager' })
+    await screen.findByText('OFS-0001')
+    fireEvent.change(screen.getByLabelText('From date'), { target: { value: '2026-11-30' } })
+    fireEvent.change(screen.getByLabelText('To date'), { target: { value: '2026-11-01' } })
+    await user.click(screen.getByRole('button', { name: 'Apply filters' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('From date must be on or before To date.')
+    expect(api).not.toHaveBeenCalledWith(expect.stringContaining('/api/admin/orders?'))
+  })
+
+  test('Today uses the local calendar day for both date bounds', async () => {
+    const user = userEvent.setup()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 10, 8, 23, 30))
+    renderWithProviders(<ManagerOrders />, { route: '/manager' })
+    await screen.findByText('OFS-0001')
+    await user.click(screen.getByRole('button', { name: 'Today' }))
+    expect(screen.getByLabelText('From date')).toHaveValue('2026-11-08')
+    expect(screen.getByLabelText('To date')).toHaveValue('2026-11-08')
+    await waitFor(() => expect(api).toHaveBeenCalledWith('/api/admin/orders?from=2026-11-08&to=2026-11-08'))
+  })
+
+  test('clears search, dates and status together', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<ManagerOrders />, { route: '/manager' })
+    await screen.findByText('OFS-0001')
+    await user.type(screen.getByRole('searchbox', { name: 'Search orders' }), 'OFS-0001')
+    fireEvent.change(screen.getByLabelText('From date'), { target: { value: '2026-11-01' } })
+    await user.click(screen.getByRole('button', { name: 'Apply filters' }))
+    await user.click(screen.getByRole('button', { name: 'Order placed (1)' }))
+    await user.click(screen.getByRole('button', { name: 'Clear filters' }))
+    expect(screen.getByRole('searchbox')).toHaveValue('')
+    expect(screen.getByLabelText('From date')).toHaveValue('')
+    expect(screen.getByLabelText('To date')).toHaveValue('')
+    expect(screen.getByRole('button', { name: 'All (1)' })).toHaveAttribute('aria-pressed', 'true')
+    await waitFor(() => expect(api.mock.calls.filter(([path]) => path === '/api/admin/orders')).toHaveLength(2))
+  })
+
+  test('an older search response cannot replace a newer result', async () => {
+    const user = userEvent.setup()
+    let resolveOld
+    let resolveNew
+    const oldRequest = new Promise((resolve) => { resolveOld = resolve })
+    const newRequest = new Promise((resolve) => { resolveNew = resolve })
+    const fallback = api.getMockImplementation()
+    api.mockImplementation((path, ...args) => {
+      if (path === '/api/admin/orders?q=old') return oldRequest
+      if (path === '/api/admin/orders?q=new') return newRequest
+      return fallback(path, ...args)
+    })
+    renderWithProviders(<ManagerOrders />, { route: '/manager' })
+    await screen.findByText('OFS-0001')
+    await user.type(screen.getByRole('searchbox'), 'old')
+    await user.click(screen.getByRole('button', { name: 'Apply filters' }))
+    await user.clear(screen.getByRole('searchbox'))
+    await user.type(screen.getByRole('searchbox'), 'new')
+    await user.click(screen.getByRole('button', { name: 'Apply filters' }))
+    await act(async () => resolveNew({ orders: [order({ order_number: 'OFS-NEW' })] }))
+    expect(screen.getByText('OFS-NEW')).toBeInTheDocument()
+    await act(async () => resolveOld({ orders: [order({ order_number: 'OFS-OLD' })] }))
+    expect(screen.getByText('OFS-NEW')).toBeInTheDocument()
+    expect(screen.queryByText('OFS-OLD')).not.toBeInTheDocument()
+  })
+
+  test('a refresh failure preserves the last successful order list', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<ManagerOrders />, { route: '/manager' })
+    await screen.findByText('OFS-0001')
+    const fallback = api.getMockImplementation()
+    api.mockImplementation((path, ...args) => path === '/api/admin/orders' ? Promise.reject(new Error('Connection lost')) : fallback(path, ...args))
+    await user.click(screen.getByRole('button', { name: 'Apply filters' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Showing the last successful results.')
+    expect(screen.getByText('OFS-0001')).toBeInTheDocument()
+  })
+
+  test('polling continues with the applied search and dates', async () => {
+    const user = userEvent.setup()
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    renderWithProviders(<ManagerOrders />, { route: '/manager' })
+    await screen.findByText('OFS-0001')
+    await user.type(screen.getByRole('searchbox'), 'Anna')
+    fireEvent.change(screen.getByLabelText('To date'), { target: { value: '2026-11-08' } })
+    await user.click(screen.getByRole('button', { name: 'Apply filters' }))
+    await act(async () => vi.advanceTimersByTime(15000))
+    expect(api.mock.calls.filter(([path]) => path === '/api/admin/orders?q=Anna&to=2026-11-08')).toHaveLength(2)
   })
 
   test('shows why an order was not scheduled', async () => {

@@ -1,11 +1,12 @@
-import React, { useContext, useEffect, useState } from 'react'
-import { Link, Navigate, useLocation } from 'react-router-dom'
+import React, { useContext, useEffect, useRef, useState } from 'react'
+import { Link, Navigate } from 'react-router-dom'
 import { StoreContext } from '../context/StoreContext'
 import { api } from '../api'
 import TextContent from '../components/TextContent'
 import DeliveryOverview from '../components/DeliveryOverview'
 import DeliveryMap from '../components/DeliveryMap'
 import ArrivalEstimate from '../components/ArrivalEstimate'
+import ManagerLayout from '../components/ManagerLayout'
 
 const statusLabels = {
   placed: 'Order placed',
@@ -42,29 +43,6 @@ const useManager = () => {
   return { ready: true }
 }
 
-// The page frame and tabs shared by the manager screens
-const ManagerLayout = ({ title, children }) => {
-
-  const { pathname } = useLocation()
-  const tab = (to, label) => (
-    <Link to={to} className={`px-4 py-2 text-sm ${pathname === to ? 'border-b-2 border-green-600 font-medium text-green-700' : 'text-gray-600'}`}>{label}</Link>
-  )
-
-  return (
-    <div className="border-t-2 pt-14">
-      <div className="text-2xl mb-6">
-        <TextContent text1={'MANAGER'} text2={title} />
-      </div>
-      <div className="flex gap-2 border-b border-gray-300 mb-8">
-        {tab('/manager', 'Orders')}
-        {tab('/manager/delivery', 'Delivery')}
-        {tab('/inventory', 'Inventory')}
-      </div>
-      {children}
-    </div>
-  )
-}
-
 const Section = ({ text1, text2, children }) => (
   <div className="flex flex-col gap-4 mb-12">
     <div className="text-xl sm:text-2xl">
@@ -93,6 +71,53 @@ const Meter = ({ label, used, limit, unit = '' }) => {
 // =====================================================================
 // /manager: every customer order
 // =====================================================================
+
+const paymentLabels = { approved: 'Approved', declined: 'Declined', refunded: 'Refunded' }
+
+const OrderPayments = ({ orderId, currency }) => {
+  const [payments, setPayments] = useState(null)
+  const [error, setError] = useState('')
+  const [retry, setRetry] = useState(0)
+
+  useEffect(() => {
+    let current = true
+    let sequence = 0
+    const load = async () => {
+      const request = ++sequence
+      try {
+        const data = await api(`/api/admin/orders/${orderId}/payments`)
+        if (current && request === sequence) { setPayments(data.payments); setError('') }
+      } catch (err) { if (current && request === sequence) setError(err.message) }
+    }
+    load()
+    const timer = setInterval(load, 15000)
+    return () => { current = false; clearInterval(timer) }
+  }, [orderId, retry])
+
+  return (
+    <section className="sm:col-span-2 min-w-0 flex flex-col gap-2" aria-label="Order payments">
+      <h3 className="font-medium">Payments</h3>
+      {error && <div role="alert" className="text-red-700">Could not load payments: {error}{payments && ' Showing the last successful update.'} <button type="button" onClick={() => setRetry((value) => value + 1)} className="underline">Retry payments</button></div>}
+      {payments === null && !error && <p role="status" className="text-gray-500">Loading payments...</p>}
+      {payments?.length === 0 && <p className="text-gray-500">No payment attempts are recorded for this order.</p>}
+      {payments?.length > 0 && <div className="overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <caption className="sr-only">Payment attempts for this order</caption>
+          <thead><tr>{['Time', 'Transaction ID', 'Gateway reference', 'Status', 'Amount', 'Card ending', 'Reason'].map((label) => <th key={label} scope="col" className="border-b p-2 font-medium">{label}</th>)}</tr></thead>
+          <tbody>{payments.map((payment) => <tr key={payment.transaction_id}>
+            <td className="border-b p-2">{formatTime(payment.created_at)}</td>
+            <td className="border-b p-2">{payment.transaction_id}</td>
+            <td className="border-b p-2 break-all">{payment.gateway_ref || 'Not recorded'}</td>
+            <td className={`border-b p-2 ${payment.status === 'declined' ? 'text-red-700' : payment.status === 'approved' ? 'text-green-700' : 'text-gray-700'}`}>{paymentLabels[payment.status] || payment.status}</td>
+            <td className="border-b p-2 whitespace-nowrap">{currency}{payment.amount}</td>
+            <td className="border-b p-2">{payment.card_last4 || 'Not recorded'}</td>
+            <td className="border-b p-2 break-words">{payment.failure_reason || 'None'}</td>
+          </tr>)}</tbody>
+        </table>
+      </div>}
+    </section>
+  )
+}
 
 const OrderRow = ({ order, currency, onChanged }) => {
 
@@ -139,6 +164,7 @@ const OrderRow = ({ order, currency, onChanged }) => {
           <p className="text-sm text-gray-500">
             {order.customer_name} · {formatTime(order.placed_at)} · {order.item_count} items · {order.total_weight_lb} lb · {currency}{order.grand_total}
           </p>
+          {order.customer_email && <p className="text-xs text-gray-500 break-all">{order.customer_email}{order.is_guest ? ' · Guest checkout' : ''}</p>}
         </button>
         <div className="sm:text-right">
           <p className="text-sm">{statusLabels[order.status]}</p>
@@ -180,6 +206,7 @@ const OrderRow = ({ order, currency, onChanged }) => {
             <ArrivalEstimate value={tracking?.estimated_arrival} />
             <DeliveryMap trackingMap={tracking?.map} status={order.status} />
           </div>
+          <OrderPayments orderId={order.order_id} currency={currency} />
           <div className="sm:col-span-2 flex flex-col gap-1">
             <p className="font-medium">History</p>
             {detail.history.map((step, index) => (
@@ -201,20 +228,55 @@ export const ManagerOrders = () => {
   const [orders, setOrders] = useState(null)
   const [filter, setFilter] = useState('')
   const [error, setError] = useState('')
-
-  const load = () => api('/api/admin/orders')
-    .then((data) => {
-      setOrders(data.orders)
-      setError('')
-    })
-    .catch((err) => setError(err.message))
+  const [draft, setDraft] = useState({ q: '', from: '', to: '' })
+  const [applied, setApplied] = useState({ q: '', from: '', to: '' })
+  const [filterError, setFilterError] = useState('')
+  const [loading, setLoading] = useState(false)
+  const reload = useRef(null)
 
   useEffect(() => {
     if (!ready) return
+    let current = true
+    let sequence = 0
+    const params = new URLSearchParams()
+    for (const key of ['q', 'from', 'to']) if (applied[key]) params.set(key, applied[key])
+    const path = `/api/admin/orders${params.size ? `?${params}` : ''}`
+    const load = async () => {
+      const request = ++sequence
+      setLoading(true)
+      try {
+        const data = await api(path)
+        if (current && request === sequence) { setOrders(data.orders); setError('') }
+      } catch (err) { if (current && request === sequence) setError(err.message) }
+      finally { if (current && request === sequence) setLoading(false) }
+    }
+    reload.current = load
     load()
     const timer = setInterval(load, 15000)
-    return () => clearInterval(timer)
-  }, [ready])
+    return () => { current = false; clearInterval(timer); reload.current = null }
+  }, [ready, applied])
+
+  const apply = (values) => {
+    if (values.from && values.to && values.from > values.to) {
+      setFilterError('From date must be on or before To date.')
+      return
+    }
+    setFilterError('')
+    setApplied({ ...values, q: values.q.trim() })
+  }
+  const today = () => {
+    const now = new Date()
+    const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    const values = { ...draft, from: date, to: date }
+    setDraft(values)
+    apply(values)
+  }
+  const clear = () => {
+    const values = { q: '', from: '', to: '' }
+    setDraft(values)
+    setFilter('')
+    apply(values)
+  }
 
   if (redirect) return <Navigate to={redirect} replace />
   if (!ready) return null
@@ -225,9 +287,22 @@ export const ManagerOrders = () => {
 
   return (
     <ManagerLayout title="ORDERS">
-      {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
+      <form onSubmit={(event) => { event.preventDefault(); apply(draft) }} className="mb-4 flex flex-col gap-3">
+        <label className="flex flex-col gap-1 text-sm text-gray-700">Search orders<input type="search" value={draft.q} onChange={(event) => setDraft({ ...draft, q: event.target.value })} placeholder="Order number, customer name or email" className="border border-gray-300 px-3 py-2" maxLength={255} /></label>
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="flex flex-col gap-1 text-sm text-gray-700">From date<input type="date" value={draft.from} onChange={(event) => setDraft({ ...draft, from: event.target.value })} className="border border-gray-300 px-3 py-2" /></label>
+          <label className="flex flex-col gap-1 text-sm text-gray-700">To date<input type="date" value={draft.to} onChange={(event) => setDraft({ ...draft, to: event.target.value })} className="border border-gray-300 px-3 py-2" /></label>
+          <button type="submit" className="bg-green-600 px-4 py-2 text-sm text-white">Apply filters</button>
+          <button type="button" onClick={today} className="border border-gray-300 px-4 py-2 text-sm">Today</button>
+          <button type="button" onClick={clear} className="px-3 py-2 text-sm text-green-700 underline">Clear filters</button>
+        </div>
+      </form>
+      {filterError && <p role="alert" className="mb-3 text-sm text-red-700">{filterError}</p>}
+      {error && <p role="alert" className="mb-3 text-sm text-red-700">Could not refresh orders: {error}{orders && ' Showing the last successful results.'} <button type="button" onClick={() => reload.current?.()} className="underline">Retry orders</button></p>}
+      {loading && <p role="status" className="mb-3 text-sm text-gray-500">{orders ? 'Refreshing orders...' : 'Loading orders...'}</p>}
       {orders && (
         <>
+          <p className="mb-3 text-xs text-gray-500">Status counts reflect the applied search and date filters. Dates include the entire selected day.</p>
           <div className="flex flex-wrap gap-2 mb-6">
             <button onClick={() => setFilter('')} aria-pressed={filter === ''} className={chip(filter === '')}>All ({orders.length})</button>
             {Object.keys(statusLabels).map((status) => (
@@ -238,7 +313,7 @@ export const ManagerOrders = () => {
           </div>
           {shown.length === 0 && <p className="text-gray-600">No orders here.</p>}
           {shown.map((order) => (
-            <OrderRow key={order.order_id} order={order} currency={currency} onChanged={load} />
+            <OrderRow key={order.order_id} order={order} currency={currency} onChanged={() => reload.current?.()} />
           ))}
         </>
       )}
