@@ -8,6 +8,7 @@ const ManagerLayout = ({ title, children }) => (
     <nav aria-label="Manager pages" className="flex flex-wrap gap-2 border-b border-gray-300 mb-8">
       {[
         ['/manager', 'Orders'], ['/manager/delivery', 'Delivery'],
+        ['/manager/problems', 'Problems'], ['/manager/vehicles', 'Vehicles'],
         ['/manager/staff', 'Staff'], ['/inventory', 'Inventory'],
       ].map(([to, label]) => (
         <NavLink key={to} to={to} end className={({ isActive }) => `px-4 py-2 text-sm ${isActive ? 'border-b-2 border-green-600 font-medium text-green-700' : 'text-gray-600'}`}>{label}</NavLink>

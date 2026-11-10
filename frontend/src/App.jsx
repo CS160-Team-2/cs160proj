@@ -16,6 +16,8 @@ import Account from './pages/Account'
 import { ManagerDelivery, ManagerOrders } from './pages/Manager'
 import EmployeeDelivery from './pages/EmployeeDelivery'
 import ManagerStaff from './pages/ManagerStaff'
+import ManagerProblems from './pages/ManagerProblems'
+import ManagerVehicles from './pages/ManagerVehicles'
 
 const App = () => {
 
@@ -50,6 +52,8 @@ const App = () => {
         <Route path="/manager" element={<ManagerOrders />} />
         <Route path="/manager/delivery" element={<ManagerDelivery />} />
         <Route path="/manager/staff" element={<ManagerStaff />} />
+        <Route path="/manager/problems" element={<ManagerProblems />} />
+        <Route path="/manager/vehicles" element={<ManagerVehicles />} />
       </Routes>
     </div>
 

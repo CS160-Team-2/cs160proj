@@ -95,7 +95,16 @@ function mockApi(signedInUser = manager) {
     if (path === '/api/cart') return { cart: emptyCart }
 
     if (path === '/api/admin/orders') return { orders: data.orders }
-    if (path.startsWith('/api/admin/orders?')) return { orders: data.filteredOrders ?? data.orders }
+    if (path.startsWith('/api/admin/orders?')) {
+      const params = new URLSearchParams(path.split('?')[1])
+      const rows = data.filteredOrders ?? data.orders
+      const counts = Object.fromEntries(['placed', 'awaiting_delivery', 'assigned_to_trip', 'out_for_delivery', 'delivered'].map((status) => [status, rows.filter((row) => row.status === status).length]))
+      const filtered = rows.filter((row) => !params.get('status') || row.status === params.get('status'))
+      const page = Number(params.get('page') || 1)
+      const size = Number(params.get('per_page') || 25)
+      return { orders: filtered.slice((page - 1) * size, page * size), status_counts: counts,
+        pagination: { page, per_page: size, total: filtered.length, total_pages: Math.max(1, Math.ceil(filtered.length / size)) } }
+    }
     if (path === '/api/admin/orders/1' && method === 'GET') return { order: data.detail }
     if (path === '/api/admin/orders/1/tracking') return { map: null, estimated_arrival: null }
     if (path === '/api/admin/orders/1/payments') {
@@ -142,7 +151,7 @@ describe('ManagerOrders', () => {
 
     await user.click(screen.getByRole('button', { name: 'Awaiting delivery (1)' }))
 
-    expect(screen.queryByText('OFS-0001')).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByText('OFS-0001')).not.toBeInTheDocument())
     expect(screen.getByText('OFS-0002')).toBeInTheDocument()
   })
 
@@ -236,14 +245,14 @@ describe('ManagerOrders', () => {
     await user.type(screen.getByRole('searchbox', { name: 'Search orders' }), 'anna@example.com')
     fireEvent.change(screen.getByLabelText('From date'), { target: { value: '2026-11-01' } })
     fireEvent.change(screen.getByLabelText('To date'), { target: { value: '2026-11-30' } })
-    expect(api).not.toHaveBeenCalledWith(expect.stringContaining('/api/admin/orders?'))
+    expect(api).not.toHaveBeenCalledWith(expect.stringContaining('/api/admin/orders?q='))
     data.filteredOrders = [order(), order({ order_id: 2, order_number: 'OFS-0002', status: 'delivered' })]
     await user.click(screen.getByRole('button', { name: 'Apply filters' }))
 
-    await waitFor(() => expect(api).toHaveBeenCalledWith('/api/admin/orders?q=anna%40example.com&from=2026-11-01&to=2026-11-30'))
+    await waitFor(() => expect(api).toHaveBeenCalledWith('/api/admin/orders?q=anna%40example.com&from=2026-11-01&to=2026-11-30&page=1&per_page=25'))
     await screen.findByText('OFS-0002')
     await user.click(screen.getByRole('button', { name: 'Delivered (1)' }))
-    expect(screen.queryByText('OFS-0001')).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByText('OFS-0001')).not.toBeInTheDocument())
     expect(screen.getByText('OFS-0002')).toBeInTheDocument()
   })
 
@@ -255,7 +264,7 @@ describe('ManagerOrders', () => {
     fireEvent.change(screen.getByLabelText('To date'), { target: { value: '2026-11-01' } })
     await user.click(screen.getByRole('button', { name: 'Apply filters' }))
     expect(screen.getByRole('alert')).toHaveTextContent('From date must be on or before To date.')
-    expect(api).not.toHaveBeenCalledWith(expect.stringContaining('/api/admin/orders?'))
+    expect(api).not.toHaveBeenCalledWith(expect.stringContaining('/api/admin/orders?from='))
   })
 
   test('Today uses the local calendar day for both date bounds', async () => {
@@ -267,7 +276,7 @@ describe('ManagerOrders', () => {
     await user.click(screen.getByRole('button', { name: 'Today' }))
     expect(screen.getByLabelText('From date')).toHaveValue('2026-11-08')
     expect(screen.getByLabelText('To date')).toHaveValue('2026-11-08')
-    await waitFor(() => expect(api).toHaveBeenCalledWith('/api/admin/orders?from=2026-11-08&to=2026-11-08'))
+    await waitFor(() => expect(api).toHaveBeenCalledWith('/api/admin/orders?from=2026-11-08&to=2026-11-08&page=1&per_page=25'))
   })
 
   test('clears search, dates and status together', async () => {
@@ -283,7 +292,7 @@ describe('ManagerOrders', () => {
     expect(screen.getByLabelText('From date')).toHaveValue('')
     expect(screen.getByLabelText('To date')).toHaveValue('')
     expect(screen.getByRole('button', { name: 'All (1)' })).toHaveAttribute('aria-pressed', 'true')
-    await waitFor(() => expect(api.mock.calls.filter(([path]) => path === '/api/admin/orders')).toHaveLength(2))
+    await waitFor(() => expect(api.mock.calls.filter(([path]) => path === '/api/admin/orders?page=1&per_page=25')).toHaveLength(2))
   })
 
   test('an older search response cannot replace a newer result', async () => {
@@ -294,8 +303,8 @@ describe('ManagerOrders', () => {
     const newRequest = new Promise((resolve) => { resolveNew = resolve })
     const fallback = api.getMockImplementation()
     api.mockImplementation((path, ...args) => {
-      if (path === '/api/admin/orders?q=old') return oldRequest
-      if (path === '/api/admin/orders?q=new') return newRequest
+      if (path === '/api/admin/orders?q=old&page=1&per_page=25') return oldRequest
+      if (path === '/api/admin/orders?q=new&page=1&per_page=25') return newRequest
       return fallback(path, ...args)
     })
     renderWithProviders(<ManagerOrders />, { route: '/manager' })
@@ -317,7 +326,7 @@ describe('ManagerOrders', () => {
     renderWithProviders(<ManagerOrders />, { route: '/manager' })
     await screen.findByText('OFS-0001')
     const fallback = api.getMockImplementation()
-    api.mockImplementation((path, ...args) => path === '/api/admin/orders' ? Promise.reject(new Error('Connection lost')) : fallback(path, ...args))
+    api.mockImplementation((path, ...args) => path === '/api/admin/orders?page=1&per_page=25' ? Promise.reject(new Error('Connection lost')) : fallback(path, ...args))
     await user.click(screen.getByRole('button', { name: 'Apply filters' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Showing the last successful results.')
     expect(screen.getByText('OFS-0001')).toBeInTheDocument()
@@ -332,7 +341,7 @@ describe('ManagerOrders', () => {
     fireEvent.change(screen.getByLabelText('To date'), { target: { value: '2026-11-08' } })
     await user.click(screen.getByRole('button', { name: 'Apply filters' }))
     await act(async () => vi.advanceTimersByTime(15000))
-    expect(api.mock.calls.filter(([path]) => path === '/api/admin/orders?q=Anna&to=2026-11-08')).toHaveLength(2)
+    expect(api.mock.calls.filter(([path]) => path === '/api/admin/orders?q=Anna&to=2026-11-08&page=1&per_page=25')).toHaveLength(2)
   })
 
   test('shows why an order was not scheduled', async () => {
@@ -340,6 +349,38 @@ describe('ManagerOrders', () => {
     renderWithProviders(<ManagerOrders />, { route: '/manager' })
 
     expect(await screen.findByText('Not scheduled: Too heavy for the vehicle')).toBeInTheDocument()
+  })
+
+  test('loads only a page, preserves full status counts, and resets the page on status changes', async () => {
+    const user = userEvent.setup()
+    data.orders = Array.from({ length: 26 }, (_, i) => order({ order_id: i + 1, order_number: `OFS-PAGE-${i}`, status: i === 25 ? 'delivered' : 'placed' }))
+    renderWithProviders(<ManagerOrders />, { route: '/manager' })
+    await screen.findByText('OFS-PAGE-0')
+    expect(screen.queryByText('OFS-PAGE-25')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'All (26)' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delivered (1)' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Next page' }))
+    expect(await screen.findByText('OFS-PAGE-25')).toBeInTheDocument()
+    expect(screen.queryByText('OFS-PAGE-0')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Order placed (25)' }))
+    await waitFor(() => expect(api).toHaveBeenCalledWith('/api/admin/orders?status=placed&page=1&per_page=25'))
+    expect(await screen.findByText('OFS-PAGE-0')).toBeInTheDocument()
+    expect(screen.queryByText('OFS-PAGE-25')).not.toBeInTheDocument()
+  })
+
+  test('reads the order number from a Problems link', async () => {
+    renderWithProviders(<ManagerOrders />, { route: '/manager?q=OFS-0001' })
+    await screen.findByText('OFS-0001')
+    expect(screen.getByRole('searchbox')).toHaveValue('OFS-0001')
+    expect(api).toHaveBeenCalledWith('/api/admin/orders?q=OFS-0001&page=1&per_page=25')
+  })
+
+  test('changing page size requests a new page one', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<ManagerOrders />, { route: '/manager' })
+    await screen.findByText('OFS-0001')
+    await user.selectOptions(screen.getByLabelText('Rows per page'), '10')
+    await waitFor(() => expect(api).toHaveBeenCalledWith('/api/admin/orders?page=1&per_page=10'))
   })
 
   test('sends an employee to the inventory and a customer home', async () => {

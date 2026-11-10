@@ -489,7 +489,7 @@ def dispatch(trip_id):
 # Completing a stop (called by the vehicle, the simulator, or a manager)
 # =====================================================================
 
-def complete_stop(trip_id, order_id, changed_by=None, source="vehicle"):
+def complete_stop(trip_id, order_id, changed_by=None, source="vehicle", demo=False):
     """Mark one order on a trip delivered. When it is the trip's last
     undelivered stop, the trip is completed and its vehicle freed.
     Reporting the same stop twice is harmless. Returns the trip's status."""
@@ -509,6 +509,14 @@ def complete_stop(trip_id, order_id, changed_by=None, source="vehicle"):
         cur.execute("UPDATE trip_orders SET delivered_at = NOW() "
                     "WHERE trip_id = %s AND order_id = %s", (trip_id, order_id))
 
+        if demo:
+            cur.execute(
+                "UPDATE delivery_trips d JOIN orders o ON o.order_id = %s "
+                "JOIN addresses a ON a.address_id = o.address_id "
+                "SET d.last_latitude = a.latitude, d.last_longitude = a.longitude, "
+                "d.last_report = 'demo_stop_completed', d.last_report_at = NOW() "
+                "WHERE d.trip_id = %s", (order_id, trip_id))
+
         cur.execute("SELECT COUNT(*) AS left_to_go FROM trip_orders "
                     "WHERE trip_id = %s AND delivered_at IS NULL", (trip_id,))
         if cur.fetchone()["left_to_go"] == 0:
@@ -516,5 +524,26 @@ def complete_stop(trip_id, order_id, changed_by=None, source="vehicle"):
                         "WHERE trip_id = %s", (trip_id,))
             cur.execute("UPDATE vehicles SET status = 'available' WHERE vehicle_id = %s",
                         (trip["vehicle_id"],))
+            if demo:
+                cur.execute("UPDATE delivery_trips SET last_report = 'demo_trip_completed' "
+                            "WHERE trip_id = %s", (trip_id,))
             return "completed"
         return trip["status"]
+
+
+@delivery_bp.post('/api/admin/delivery/trips/<int:trip_id>/simulation/stops/<int:order_id>/complete')
+@require_role(*MANAGER)
+def complete_simulated_stop(trip_id, order_id):
+    """Explicit, audited fallback after a restart, even with timers disabled.
+
+    A retry targets the same stop and is idempotent. Never interpret a retry
+    as 'complete the next stop', which could finish a different order.
+    """
+    if os.environ.get('VEHICLE_LINK', 'simulated') != 'simulated':
+        raise ApiError('Demo completion is only available for simulated vehicles',
+                       409, 'NOT_SIMULATED')
+    if body().get('confirmed') is not True:
+        raise ApiError('Confirm this simulated delivery before completing the stop')
+    complete_stop(trip_id, order_id, changed_by=current_user()['user_id'],
+                  source='simulation_recovery', demo=True)
+    return ok(trip=trip_json(_trip(trip_id)))

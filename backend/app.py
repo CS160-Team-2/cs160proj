@@ -39,6 +39,8 @@ import db
 from common import ApiError, error_response, ok
 from routes.addresses import addresses_bp
 from routes.admin_orders import admin_orders_bp
+from routes.admin_problems import admin_problems_bp
+from routes.admin_vehicles import admin_vehicles_bp
 from routes.auth import auth_bp
 from routes.cart import cart_bp
 from routes.catalog import catalog_bp
@@ -91,7 +93,8 @@ def create_app():
     CORS(app, resources={r"/api/*": {"origins": [frontend_origin]}}, supports_credentials=True)
 
     for blueprint in (auth_bp, addresses_bp, catalog_bp, cart_bp, orders_bp,
-                      admin_orders_bp, inventory_bp, manifests_bp, delivery_bp, fleet_bp, guest_bp, product_images_bp):
+                      admin_orders_bp, admin_problems_bp, admin_vehicles_bp, inventory_bp,
+                      manifests_bp, delivery_bp, fleet_bp, guest_bp, product_images_bp):
         app.register_blueprint(blueprint)
 
     @app.get("/api/health")
