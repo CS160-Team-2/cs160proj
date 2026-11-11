@@ -1,5 +1,5 @@
 import React, { useContext, useEffect, useRef, useState } from 'react'
-import { Link, Navigate } from 'react-router-dom'
+import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import { StoreContext } from '../context/StoreContext'
 import { api } from '../api'
 import TextContent from '../components/TextContent'
@@ -7,6 +7,8 @@ import DeliveryOverview from '../components/DeliveryOverview'
 import DeliveryMap from '../components/DeliveryMap'
 import ArrivalEstimate from '../components/ArrivalEstimate'
 import ManagerLayout from '../components/ManagerLayout'
+import ManagerPagination from '../components/ManagerPagination'
+import SimulationRecovery from '../components/SimulationRecovery'
 
 const statusLabels = {
   placed: 'Order placed',
@@ -226,10 +228,15 @@ export const ManagerOrders = () => {
   const { currency } = useContext(StoreContext)
   const { ready, redirect } = useManager()
   const [orders, setOrders] = useState(null)
+  const [searchParams] = useSearchParams()
+  const [page, setPage] = useState(1)
+  const [size, setSize] = useState(25)
+  const [pagination, setPagination] = useState(null)
+  const [counts, setCounts] = useState(null)
   const [filter, setFilter] = useState('')
   const [error, setError] = useState('')
-  const [draft, setDraft] = useState({ q: '', from: '', to: '' })
-  const [applied, setApplied] = useState({ q: '', from: '', to: '' })
+  const [draft, setDraft] = useState({ q: searchParams.get('q') || '', from: '', to: '' })
+  const [applied, setApplied] = useState(draft)
   const [filterError, setFilterError] = useState('')
   const [loading, setLoading] = useState(false)
   const reload = useRef(null)
@@ -240,13 +247,18 @@ export const ManagerOrders = () => {
     let sequence = 0
     const params = new URLSearchParams()
     for (const key of ['q', 'from', 'to']) if (applied[key]) params.set(key, applied[key])
-    const path = `/api/admin/orders${params.size ? `?${params}` : ''}`
+    if (filter) params.set('status', filter)
+    params.set('page', page)
+    params.set('per_page', size)
+    const path = `/api/admin/orders?${params}`
     const load = async () => {
       const request = ++sequence
       setLoading(true)
       try {
         const data = await api(path)
-        if (current && request === sequence) { setOrders(data.orders); setError('') }
+        if (current && request === sequence) {
+          setOrders(data.orders); setPagination(data.pagination); setCounts(data.status_counts); setError('')
+        }
       } catch (err) { if (current && request === sequence) setError(err.message) }
       finally { if (current && request === sequence) setLoading(false) }
     }
@@ -254,7 +266,7 @@ export const ManagerOrders = () => {
     load()
     const timer = setInterval(load, 15000)
     return () => { current = false; clearInterval(timer); reload.current = null }
-  }, [ready, applied])
+  }, [ready, applied, filter, page, size])
 
   const apply = (values) => {
     if (values.from && values.to && values.from > values.to) {
@@ -262,6 +274,7 @@ export const ManagerOrders = () => {
       return
     }
     setFilterError('')
+    setPage(1)
     setApplied({ ...values, q: values.q.trim() })
   }
   const today = () => {
@@ -281,9 +294,10 @@ export const ManagerOrders = () => {
   if (redirect) return <Navigate to={redirect} replace />
   if (!ready) return null
 
-  const count = (status) => orders.filter((order) => order.status === status).length
+  const count = (status) => counts?.[status] ?? orders.filter((order) => order.status === status).length
   const chip = (active) => `border text-sm px-4 py-1 ${active ? 'border-green-600 bg-green-600 text-white' : 'border-gray-300 text-gray-700'}`
-  const shown = orders ? orders.filter((order) => !filter || order.status === filter) : []
+  const shown = orders || []
+  const selectStatus = (value) => { setFilter(value); setPage(1) }
 
   return (
     <ManagerLayout title="ORDERS">
@@ -304,9 +318,9 @@ export const ManagerOrders = () => {
         <>
           <p className="mb-3 text-xs text-gray-500">Status counts reflect the applied search and date filters. Dates include the entire selected day.</p>
           <div className="flex flex-wrap gap-2 mb-6">
-            <button onClick={() => setFilter('')} aria-pressed={filter === ''} className={chip(filter === '')}>All ({orders.length})</button>
+            <button onClick={() => selectStatus('')} aria-pressed={filter === ''} className={chip(filter === '')}>All ({counts ? Object.values(counts).reduce((a, b) => a + b, 0) : orders.length})</button>
             {Object.keys(statusLabels).map((status) => (
-              <button key={status} onClick={() => setFilter(status)} aria-pressed={filter === status} className={chip(filter === status)}>
+              <button key={status} onClick={() => selectStatus(status)} aria-pressed={filter === status} className={chip(filter === status)}>
                 {statusLabels[status]} ({count(status)})
               </button>
             ))}
@@ -315,6 +329,7 @@ export const ManagerOrders = () => {
           {shown.map((order) => (
             <OrderRow key={order.order_id} order={order} currency={currency} onChanged={() => reload.current?.()} />
           ))}
+          <ManagerPagination value={pagination} loading={loading} onPage={setPage} onSize={(value) => { setSize(value); setPage(1) }} />
         </>
       )}
     </ManagerLayout>
@@ -400,6 +415,8 @@ const TripCard = ({ trip, queue, onChanged, onViewRoute }) => {
             : 'Waiting for the first report from the vehicle.'}
         </p>
       )}
+
+      <SimulationRecovery trip={trip} onChanged={onChanged} />
 
       {planned && (
         <div className="flex flex-wrap items-center gap-3">

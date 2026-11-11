@@ -25,6 +25,7 @@ import db
 import rules
 from common import MANAGER, ApiError, body, current_user, ok, require_role
 from order_status import change_status
+from manager_queries import page_args, pagination
 from routes.orders import order_detail, order_summary, status_history, tracking_payload
 
 admin_orders_bp = Blueprint("admin_orders", __name__)
@@ -67,8 +68,6 @@ def list_orders():
     if status:
         if status not in rules.ORDER_STATUSES:
             raise ApiError(f"status must be one of: {', '.join(rules.ORDER_STATUSES)}")
-        where.append("o.status = %s")
-        params.append(status)
 
     start, end = _date_arg("from"), _date_arg("to")
     if start and end and start > end:
@@ -96,23 +95,47 @@ def list_orders():
         )
         params.extend((pattern, pattern, pattern))
 
-    rows = db.query_all(
+    base_where = 'WHERE ' + ' AND '.join(where) if where else ''
+    paged = 'page' in request.args or 'per_page' in request.args
+    page, size = page_args() if paged else (1, 25)
+    metadata = {}
+    # One snapshot keeps counts and rows consistent while other requests
+    # place orders or update their status.
+    with db.transaction() as cur:
+        if paged:
+            cur.execute(
+                "SELECT o.status, COUNT(*) AS count FROM orders o "
+                "JOIN users u ON u.user_id = o.user_id "
+                f"{base_where} GROUP BY o.status", tuple(params))
+            counts = dict.fromkeys(rules.ORDER_STATUSES, 0)
+            counts.update({r['status']: r['count'] for r in cur.fetchall()})
+            total = counts[status] if status else sum(counts.values())
+            meta = pagination(total, page, size)
+            metadata = {'pagination': meta, 'status_counts': counts}
+        if status:
+            where.append("o.status = %s")
+            params.append(status)
+        sql = (
         f"SELECT o.*, u.full_name AS customer_name, {CONTACT_EMAIL} AS customer_email, "
         "       u.is_guest, t.trip_id, "
         "       (SELECT SUM(quantity) FROM order_items WHERE order_id = o.order_id) AS item_count "
         "FROM orders o JOIN users u ON u.user_id = o.user_id "
         "LEFT JOIN trip_orders t ON t.order_id = o.order_id "
         f"{'WHERE ' + ' AND '.join(where) if where else ''} "
-        "ORDER BY o.placed_at DESC, o.order_id DESC",
-        tuple(params),
-    )
+        "ORDER BY o.placed_at DESC, o.order_id DESC"
+        )
+        if paged:
+            sql += " LIMIT %s OFFSET %s"
+            params.extend((size, (meta['page'] - 1) * size))
+        cur.execute(sql, tuple(params))
+        rows = cur.fetchall()
     return ok(orders=[
         {**order_summary(r), "customer_name": r["customer_name"],
          "customer_email": r["customer_email"], "is_guest": bool(r["is_guest"]),
          "item_count": int(r["item_count"] or 0),
          "trip_id": r["trip_id"], "unscheduled_reason": r["unscheduled_reason"]}
         for r in rows
-    ])
+    ], **metadata)
 
 
 @admin_orders_bp.get("/api/admin/orders/<int:order_id>")
