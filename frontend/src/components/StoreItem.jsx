@@ -2,6 +2,7 @@ import React, { useContext } from 'react'
 import { Link } from 'react-router-dom'
 import { StoreContext } from '../context/StoreContext'
 
+// One product card in the grids: picture, price, weight and stock.
 const StoreItem = ({ id, name, image, price, weight, stock, available }) => {
 
     const { currency } = useContext(StoreContext)

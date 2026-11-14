@@ -5,6 +5,7 @@ import StoreItem from './StoreItem'
 
 const mostSoldIds = [29, 31, 23, 32, 2]
 
+// Home page row of the most sold products.
 const MostSold = () => {
 
     const { products } = useContext(StoreContext)

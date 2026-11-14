@@ -5,6 +5,7 @@ import StoreItem from './StoreItem'
 
 const featuredIds = [4, 14, 15, 20, 37]
 
+// Home page row of featured products.
 const FeaturedProducts = () => {
 
     const { products } = useContext(StoreContext)

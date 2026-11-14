@@ -10,6 +10,7 @@ const priceRanges = [
   { label: '$7 & above', min: 7, max: Infinity },
 ]
 
+// Returns a randomly ordered copy of the list (the default sort).
 const shuffle = (list) => {
   const result = [...list]
   for (let i = result.length - 1; i > 0; i--) {
@@ -19,6 +20,7 @@ const shuffle = (list) => {
   return result
 }
 
+// The Products page: search, filters, sorting and the product grid.
 const Products = () => {
 
   const { products, productsLoading } = useContext(StoreContext)
@@ -35,16 +37,19 @@ const Products = () => {
 
   const categoryList = [...new Set(products.map((item) => item.category))].sort()
 
+  // Adds or removes a value in a list of ticked filters.
   const toggle = (value, list, setList) => {
     setList(list.includes(value) ? list.filter((entry) => entry !== value) : [...list, value])
   }
 
+  // Applies the ticked filters to the product list.
   const applyFilters = () => {
     setAppliedCategories(categories)
     setAppliedRanges(ranges)
     setShowFilter(false)
   }
 
+  // Unticks and clears all filters.
   const clearFilters = () => {
     setCategories([])
     setRanges([])

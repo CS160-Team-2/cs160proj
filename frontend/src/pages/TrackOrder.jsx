@@ -4,6 +4,7 @@ import { api } from '../api'
 import TextContent from '../components/TextContent'
 import { OrderView } from './Orders'
 
+// Guest page to look up an order by number and email.
 const TrackOrder = () => {
 
   const [orderNumber, setOrderNumber] = useState('')
@@ -14,12 +15,14 @@ const TrackOrder = () => {
   const [refreshError, setRefreshError] = useState('')
   const searched = useRef(null)
 
+  // Asks the backend for the order and its tracking steps.
   const lookUp = async (details) => {
     const data = await api('/api/orders/lookup', { method: 'POST', body: details })
     setResult({ order: data.order, tracking: data.tracking })
     setRefreshError('')
   }
 
+  // Runs a lookup when the form is sent and shows any error.
   const handleSubmit = async (event) => {
     event.preventDefault()
     setError('')

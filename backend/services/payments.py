@@ -319,6 +319,14 @@ def gateway():
     return _gateway
 
 
+# Says which gateway is switched on, and its currency, so the checkout page can show the right card form.
+def public_config():
+    return {
+        "gateway": os.environ.get("PAYMENT_GATEWAY", "fake"),
+        "currency": os.environ.get("STRIPE_CURRENCY", "usd").lower(),
+    }
+
+
 def use_gateway(instance):
     """Swap the gateway, for tests."""
     global _gateway

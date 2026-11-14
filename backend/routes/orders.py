@@ -159,6 +159,12 @@ def _raise_if_problems(lines):
                        409, "CART_NEEDS_CHANGES", items=problems)
 
 
+# Public: which payment gateway is on (fake or stripe) and its currency.
+@orders_bp.get("/api/payments/config")
+def payment_config():
+    return ok(**payments.public_config())
+
+
 @orders_bp.post("/api/checkout/preview")
 @require_role(*CUSTOMER)
 def preview():
@@ -354,6 +360,7 @@ def my_order(order_number):
     return ok(order=order_detail(_own_order(order_number)))
 
 
+# Builds the status steps, estimate and map data for one order.
 def tracking_payload(order):
     history = status_history(order["order_id"])
     reached = {h["to_status"]: h["changed_at"] for h in history}

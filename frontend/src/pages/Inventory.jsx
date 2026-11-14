@@ -6,6 +6,7 @@ import { imageFor } from '../productImage'
 import TextContent from '../components/TextContent'
 import ManifestUpload from '../components/ManifestUpload'
 
+// Uploads a product picture as form data.
 const uploadImage = (productId, file) => {
   const data = new FormData()
   data.append('image', file)
@@ -40,6 +41,7 @@ const ProductForm = ({ initial, categories, withStock, submitLabel, onSubmit, on
     return () => URL.revokeObjectURL(url)
   }, [imageFile])
 
+  // Checks the chosen picture's type and size before using it.
   const chooseImage = (e) => {
     const file = e.target.files[0]
     if (!file) {

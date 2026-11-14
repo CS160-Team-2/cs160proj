@@ -60,6 +60,7 @@ def _set_quantity(user_id, product_id, quantity):
         cart = dict(session.get("guest_cart", {}))
         cart[str(product_id)] = quantity
         session["guest_cart"] = cart
+        session.permanent = True
         return
     with db.transaction() as cur:
         cur.execute("INSERT IGNORE INTO carts (user_id) VALUES (%s)", (user_id,))
@@ -77,6 +78,7 @@ def _remove(user_id, product_id):
         cart = dict(session.get("guest_cart", {}))
         cart.pop(str(product_id), None)
         session["guest_cart"] = cart
+        session.permanent = True
         return
     with db.transaction() as cur:
         cur.execute(

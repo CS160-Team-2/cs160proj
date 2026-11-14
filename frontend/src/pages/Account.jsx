@@ -6,10 +6,12 @@ import TextContent from '../components/TextContent'
 
 const emptyAddress = { street: '', city: '', state: 'CA', zip_code: '' }
 
+// Shows a green or red feedback line under a form.
 const Message = ({ message }) => (
   message.text ? <p className={`text-sm ${message.error ? 'text-red-600' : 'text-green-600'}`} role={message.error ? 'alert' : 'status'}>{message.text}</p> : null
 )
 
+// A titled box that groups one part of the account page.
 const Section = ({ title, children }) => (
   <section className="flex flex-col gap-4 border border-gray-200 px-5 py-5">
     <h2 className="text-lg font-medium">{title}</h2>
@@ -19,14 +21,17 @@ const Section = ({ title, children }) => (
 
 const inputClass = 'border border-gray-300 px-3 py-2 w-full'
 
+// Form to edit the customer's name, email and phone.
 const Details = ({ user, updateUser }) => {
 
   const [form, setForm] = useState({ full_name: user.full_name, phone: user.phone || '', email: user.email })
   const [message, setMessage] = useState({ text: '', error: false })
   const [busy, setBusy] = useState(false)
 
+  // Updates one field of the details form as the customer types.
   const change = (field) => (e) => setForm({ ...form, [field]: e.target.value })
 
+  // Saves the details and refreshes the signed-in user.
   const save = async (event) => {
     event.preventDefault()
     if (!form.full_name.trim()) {
@@ -69,14 +74,17 @@ const Details = ({ user, updateUser }) => {
   )
 }
 
+// Form to change the password; asks for the current one first.
 const Password = () => {
 
   const [form, setForm] = useState({ current: '', next: '', again: '' })
   const [message, setMessage] = useState({ text: '', error: false })
   const [busy, setBusy] = useState(false)
 
+  // Updates one password field as the customer types.
   const change = (field) => (e) => setForm({ ...form, [field]: e.target.value })
 
+  // Checks the new password, then sends the change to the backend.
   const save = async (event) => {
     event.preventDefault()
     if (form.next.length < 8) {
@@ -114,14 +122,17 @@ const Password = () => {
   )
 }
 
+// Street, city, state and ZIP fields shared by add and edit.
 const AddressForm = ({ initial, submitLabel, onSubmit, onCancel }) => {
 
   const [form, setForm] = useState(initial)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
+  // Updates one address field as the customer types.
   const change = (field) => (e) => setForm({ ...form, [field]: e.target.value })
 
+  // Validates the address and passes it to the save callback.
   const submit = async (event) => {
     event.preventDefault()
     const values = Object.fromEntries(Object.entries(form).map(([name, value]) => [name, value.trim()]))
@@ -159,18 +170,21 @@ const AddressForm = ({ initial, submitLabel, onSubmit, onCancel }) => {
   )
 }
 
+// One saved address with edit and delete (with confirmation).
 const AddressRow = ({ address, onChanged }) => {
 
   const [mode, setMode] = useState('view')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
+  // Sends the edited address; the backend keeps past orders' address unchanged.
   const save = async (values) => {
     await api(`/api/users/me/addresses/${address.address_id}`, { method: 'PATCH', body: values })
     setMode('view')
     onChanged()
   }
 
+  // Deletes the address after the customer confirms.
   const remove = async () => {
     setBusy(true)
     setError('')
@@ -217,12 +231,14 @@ const AddressRow = ({ address, onChanged }) => {
   )
 }
 
+// Lists saved addresses and lets the customer add one.
 const Addresses = () => {
 
   const [addresses, setAddresses] = useState(null)
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState('')
 
+  // Fetches the customer's saved addresses.
   const load = () => {
     api('/api/users/me/addresses')
       .then((data) => {
@@ -234,6 +250,7 @@ const Addresses = () => {
 
   useEffect(load, [])
 
+  // Saves a new address and reloads the list.
   const add = async (values) => {
     await api('/api/users/me/addresses', { method: 'POST', body: values })
     setAdding(false)
@@ -259,6 +276,7 @@ const Addresses = () => {
   )
 }
 
+// Asks for a password before closing the account.
 const DeleteAccount = ({ onDeleted }) => {
 
   const [confirming, setConfirming] = useState(false)
@@ -266,12 +284,14 @@ const DeleteAccount = ({ onDeleted }) => {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
+  // Closes the confirmation box and clears the password.
   const cancel = () => {
     setConfirming(false)
     setPassword('')
     setError('')
   }
 
+  // Deletes the account, then tells the page it is done.
   const remove = async (event) => {
     event.preventDefault()
     if (!password) {
@@ -314,6 +334,7 @@ const DeleteAccount = ({ onDeleted }) => {
   )
 }
 
+// The /account page: details, password, addresses and delete account.
 const Account = () => {
 
   const { user, updateUser, signOut } = useContext(StoreContext)
@@ -323,6 +344,7 @@ const Account = () => {
   if (!user) return <Navigate to="/login?next=/account" replace />
   if (user.role !== 'customer' || user.is_guest) return <Navigate to={user.role === 'customer' ? '/orders' : '/'} replace />
 
+  // Signs out and returns Home with the 'account deleted' message.
   const deleted = async () => {
     await signOut()
     navigate('/', { state: { accountDeleted: true } })

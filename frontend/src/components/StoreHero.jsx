@@ -2,6 +2,7 @@ import React from 'react'
 import heroImage from '../assets/hero_image.jpeg'
 import logo from '../assets/ofs_logo_transparent.png'
 
+// Home page hero image with the OFS logo centered on it.
 const StoreHero = () => {
   return (
     <div className="relative overflow-hidden -mx-4 sm:-mx-[5vw] md:-mx-[7vw] lg:-mx-[9vw]">

@@ -43,7 +43,7 @@ The Flask API is complete for: catalog, cart, accounts, addresses, checkout and 
 ### Not built yet
 
 - Manager screens for the order monitor, delivery status board and trip planning (the backend routes exist; the frontend pages are in progress).
-- Stripe's own secure card field. The checkout form is a stand-in and only accepts Stripe's test card numbers when Stripe is switched on.
+- Wallet payments and PayPal are not verified or built yet: Apple Pay and Google Pay buttons exist but have not been tried on a real device, and PayPal is not offered.
 - A real self-driving vehicle (a simulator is used) and Apple Pay or PayPal.
 
 ## Tech stack
@@ -146,6 +146,7 @@ After pulling changes, run `npm install` in `frontend/` and `pip install -r requ
 | `FLASK_PORT` | `5001` | Port Flask listens on (5000 clashes with macOS AirPlay) |
 | `FRONTEND_ORIGIN` | `http://localhost:5173` | The only origin allowed to call the API |
 | `SECRET_KEY` | development key | Signs the sign-in cookie. Set your own anywhere except your laptop |
+| `CART_SESSION_DAYS` | `14` | How many days a guest's cart and a customer's sign-in last after their last visit. Each visit extends it. Staff sessions end with the browser |
 | `PAYMENT_GATEWAY` | `fake` | `fake` or `stripe` |
 | `STRIPE_SECRET_KEY` | none | A test key (`sk_test_...`), only with `PAYMENT_GATEWAY=stripe` |
 | `MAP_PROVIDER` | `fake` | `fake`, `mapbox` or `google` |
@@ -160,6 +161,7 @@ After pulling changes, run `npm install` in `frontend/` and `pip install -r requ
 |---|---|
 | `VITE_API_BASE` | Backend address. Defaults to `http://localhost:5001`. Leave it empty when Apache serves both |
 | `VITE_MAPBOX_ACCESS_TOKEN` | A Mapbox **public** token (`pk.`) for the interactive delivery map. Never use a secret `sk.` token |
+| `VITE_STRIPE_PUBLISHABLE_KEY` | A Stripe **publishable** key (`pk_test_...`) for Stripe's own card field. Empty means the built-in test form. Never use a secret `sk_` key |
 
 Never commit `.env` files or keys.
 
@@ -170,7 +172,7 @@ Everything runs offline with the built-in fakes. Turn these on only when needed,
 ### Stripe test payments
 
 1. Get a test **secret** key (`sk_test_...`) from your Stripe dashboard, in test mode.
-2. In `backend/.env`, set `PAYMENT_GATEWAY=stripe` and `STRIPE_SECRET_KEY=sk_test_...`, then restart Flask.
+2. In `backend/.env`, set `PAYMENT_GATEWAY=stripe` and `STRIPE_SECRET_KEY=sk_test_...`, then restart Flask. For Stripe's own card field, also put the publishable key in `frontend/.env` as `VITE_STRIPE_PUBLISHABLE_KEY=pk_test_...` and restart Vite.
 3. Check out with a Stripe test card, any future expiry and any 3-digit security code:
 
 | Card number | Result |
@@ -211,6 +213,18 @@ npm run test:run        # run once
 npm test                # watch mode
 npm run coverage        # with a coverage report
 ```
+
+### Browser tests (Playwright)
+
+Real-browser tests live in `frontend/e2e/`. They start Flask and Vite if those are not already running, and use your local `ofs` database (they do not change data).
+
+```bash
+cd frontend
+E2E_CHANNEL=chrome npm run e2e      # uses the Chrome you already have installed
+# or, once: npx playwright install chromium   then: npm run e2e
+```
+
+Set `E2E_BACKEND_COMMAND` if your Python path is not `../.venv/bin/python` (for example on Windows). Restart any Flask you already have running first, so the tests use the latest backend code.
 
 ### Docker test database (optional)
 

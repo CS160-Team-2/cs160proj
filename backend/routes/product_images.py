@@ -36,6 +36,7 @@ FILENAME_PATTERN = re.compile(r"^[0-9a-f]{32}\.(jpg|png|webp)$")
 MIME_TYPES = {"jpg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
 
 
+# Identifies JPEG, PNG or WebP from the file's first bytes.
 def _detect_type(data):
     if data.startswith(b"\xff\xd8\xff"):
         return "jpg"
@@ -46,6 +47,7 @@ def _detect_type(data):
     return None
 
 
+# Returns the uploaded file name inside an image key, if it is one.
 def _stored_filename(image_key):
     if image_key and image_key.startswith(KEY_PREFIX):
         name = image_key[len(KEY_PREFIX):]
@@ -54,12 +56,14 @@ def _stored_filename(image_key):
     return None
 
 
+# Deletes an uploaded picture file when it is replaced or removed.
 def _delete_file(image_key):
     name = _stored_filename(image_key)
     if name:
         (UPLOAD_DIR / name).unlink(missing_ok=True)
 
 
+# Saves a staff member's picture for a product and points the product at it.
 @product_images_bp.post("/api/admin/products/<int:product_id>/image")
 @require_role(*STAFF)
 def upload_image(product_id):
@@ -90,6 +94,7 @@ def upload_image(product_id):
     return ok(product=inventory_json(_load(product_id)))
 
 
+# Removes a product's picture (the shop then shows a placeholder).
 @product_images_bp.delete("/api/admin/products/<int:product_id>/image")
 @require_role(*STAFF)
 def remove_image(product_id):
@@ -100,6 +105,7 @@ def remove_image(product_id):
     return ok(product=inventory_json(_load(product_id)))
 
 
+# Serves an uploaded picture to the shop.
 @product_images_bp.get("/api/product-images/<filename>")
 def serve_image(filename):
     match = FILENAME_PATTERN.match(filename)

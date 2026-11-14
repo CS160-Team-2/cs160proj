@@ -35,6 +35,7 @@ export const OrderHistory = () => {
   return <MyOrders />
 }
 
+// The signed-in customer's list of orders with live status.
 const MyOrders = () => {
 
   const { state } = useLocation()
@@ -124,6 +125,7 @@ export const OrderDetail = () => {
   return <>{error && <p role="alert" className="mt-4 text-sm text-red-700">Tracking could not refresh. Showing the last successful update: {error}</p>}<OrderView order={order} tracking={tracking} justPlaced={state?.justPlaced} footer={<Link to="/orders" className="text-sm text-green-600 underline">See all my orders</Link>} /></>
 }
 
+// Shows an order's status steps, map, items and totals.
 export const OrderView = ({ order, tracking, justPlaced, footer }) => {
 
   const { currency } = useContext(StoreContext)

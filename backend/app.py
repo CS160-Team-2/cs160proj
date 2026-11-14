@@ -27,7 +27,7 @@ Conventions, from the API design:
 """
 
 import os
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from flask import Flask
@@ -84,6 +84,9 @@ def create_app():
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE") == "1",
         MAX_CONTENT_LENGTH=6 * 1024 * 1024,
+        # How long a shopper's cart and sign-in last after their last visit.
+        # Each visit pushes the expiry forward. Staff sessions never use it.
+        PERMANENT_SESSION_LIFETIME=timedelta(days=int(os.environ.get("CART_SESSION_DAYS", "14"))),
     )
 
     # In development React runs on a different port, so the browser treats

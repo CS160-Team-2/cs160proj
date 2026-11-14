@@ -6,6 +6,7 @@ const placeholderImage =
 
 const uploadPrefix = 'upload:'
 
+// Turns a product's image key into a picture URL (upload, bundled image or placeholder).
 export const imageFor = (imageKey) => {
     if (imageKey && imageKey.startsWith(uploadPrefix)) {
         return `${API_BASE}/api/product-images/${imageKey.slice(uploadPrefix.length)}`

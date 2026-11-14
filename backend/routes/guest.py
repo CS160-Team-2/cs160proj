@@ -38,6 +38,7 @@ UNUSABLE_HASH = "!"
 PHONE_PATTERN = re.compile(r"^[0-9+()\-.\s]{7,30}$")
 
 
+# Validates the guest's contact details and returns them in one dict.
 def _contact(data):
     contact = data.get("contact")
     if not isinstance(contact, dict):
@@ -50,6 +51,7 @@ def _contact(data):
     return {"full_name": f"{first} {last}", "email": _valid_email(contact), "phone": phone}
 
 
+# Creates a guest customer and address, signs them in, and moves the cart across.
 @guest_bp.post("/api/checkout/guest")
 def start_guest_checkout():
     if current_user() is not None:
@@ -82,6 +84,7 @@ def start_guest_checkout():
     return ok(201, user=user_json(user), address=address_json(_load(address_id)))
 
 
+# Returns the cart's totals with tax so the page can show a final price.
 @guest_bp.get("/api/checkout/estimate")
 def estimate():
     user = current_user()
@@ -94,6 +97,7 @@ def estimate():
     return ok(**rules.price_lines(lines))
 
 
+# Finds an order by order number plus email for visitors who are not signed in.
 @guest_bp.post("/api/orders/lookup")
 def lookup_order():
     data = body()

@@ -64,6 +64,7 @@ const StoreContextProvider = (props) => {
     const register = (fullName, email, password) =>
         startSession('/api/auth/register', { full_name: fullName, email, password })
 
+    // Creates a guest account for the order and signs the browser in as that guest.
     const guestCheckout = async (contact, address) => {
         const data = await api('/api/checkout/guest', { method: 'POST', body: { contact, address } })
         setUser(data.user)

@@ -82,6 +82,8 @@ def _start_session(user):
     guest_cart = session.get("guest_cart")
     session.clear()
     session["user_id"] = user["user_id"]
+    # Shoppers stay signed in for the cart lifetime; staff end with the browser.
+    session.permanent = user["role"] == "customer"
     if user["role"] == "customer" and guest_cart:
         cart_routes.merge_guest_cart(user["user_id"], guest_cart)
 
@@ -166,6 +168,7 @@ def update_me():
     return ok(user=user_json(_load_user(user["user_id"])))
 
 
+# Closes the signed-in customer's own account (anonymised, orders kept).
 @auth_bp.delete("/api/users/me")
 @require_role(*CUSTOMER)
 def delete_me():

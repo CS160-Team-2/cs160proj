@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import { StoreContext } from '../context/StoreContext'
 import RelatedItems from '../components/RelatedItems'
 
+// The product page: details, stock and add-to-cart with a quantity.
 const Item = () => {
 
   const { itemId } = useParams()
@@ -18,6 +19,7 @@ const Item = () => {
 
   const itemData = products.find((item) => String(item.product_id) === itemId)
 
+  // Checks the quantity, then adds that many to the cart.
   const handleAddToCart = async () => {
     const amount = Number(quantity)
     if (quantity.trim() === '' || !Number.isInteger(amount) || amount < 1) {

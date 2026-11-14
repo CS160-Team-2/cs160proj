@@ -4,6 +4,7 @@ import { StoreContext } from '../context/StoreContext'
 import { api } from '../api'
 import TextContent from '../components/TextContent'
 import { CardIcon, LockIcon } from '../components/Icons'
+import StripePayment, { stripePublishableKey } from '../components/StripePayment'
 
 const emptyCard = { name: '', number: '', expiry: '', cvc: '' }
 
@@ -15,15 +16,19 @@ const stripeTestTokens = {
   '4000000000000069': 'tok_chargeDeclinedExpiredCard',
 }
 
+// Strips everything except digits.
 const digitsOnly = (value) => value.replace(/\D/g, '')
 
+// Groups a card number in fours as it is typed.
 const formatNumber = (value) => digitsOnly(value).slice(0, 19).replace(/(.{4})/g, '$1 ').trim()
 
+// Formats the expiry as MM/YY as it is typed.
 const formatExpiry = (value) => {
   const digits = digitsOnly(value).slice(0, 4)
   return digits.length > 2 ? `${digits.slice(0, 2)}/${digits.slice(2)}` : digits
 }
 
+// Checks the card number's checksum.
 const passesLuhn = (number) => {
   let sum = 0
   for (let i = 0; i < number.length; i++) {
@@ -37,6 +42,7 @@ const passesLuhn = (number) => {
   return sum % 10 === 0
 }
 
+// Returns the first problem with the card details, or an empty string.
 const cardError = (card) => {
   const number = digitsOnly(card.number)
   if (!card.name.trim()) return 'Enter the name on the card.'
@@ -49,6 +55,7 @@ const cardError = (card) => {
   return ''
 }
 
+// Maps a test card number to the token the backend gateway understands.
 const cardToken = (card) => {
   const number = digitsOnly(card.number)
   return stripeTestTokens[number] || `tok_card_${number.slice(-4)}`
@@ -58,6 +65,7 @@ const emptyAddress = { street: '', city: '', state: 'CA', zip_code: '' }
 const emptyContact = { first_name: '', last_name: '', email: '', phone: '' }
 const guestKey = 'ofs_guest_checkout'
 
+// Reads the guest's saved contact and address for this browser session.
 const loadGuest = () => {
   try {
     const saved = JSON.parse(sessionStorage.getItem(guestKey))
@@ -67,6 +75,7 @@ const loadGuest = () => {
   }
 }
 
+// Remembers the guest's details between page loads.
 const saveGuest = (contact, address) => {
   try {
     sessionStorage.setItem(guestKey, JSON.stringify({ contact, address }))
@@ -75,6 +84,7 @@ const saveGuest = (contact, address) => {
   }
 }
 
+// Forgets the saved guest details after the order is placed.
 const clearGuest = () => {
   try {
     sessionStorage.removeItem(guestKey)
@@ -83,6 +93,7 @@ const clearGuest = () => {
   }
 }
 
+// The checkout page: contact, address, card and order summary.
 const Checkout = () => {
 
   const { user, currency, cart, reloadCart, reloadProducts, guestCheckout } = useContext(StoreContext)
@@ -102,6 +113,8 @@ const Checkout = () => {
   const [card, setCard] = useState(emptyCard)
   const [placing, setPlacing] = useState(false)
   const [orderError, setOrderError] = useState('')
+  const [paymentConfig, setPaymentConfig] = useState(() => (stripePublishableKey() ? null : { gateway: 'fake' }))
+  const tokenGetterRef = useRef(null)
 
   // One key per visit to this page. A double-click or a retry after a
   // declined card sends the same key, so the backend never charges twice.
@@ -113,6 +126,14 @@ const Checkout = () => {
   useEffect(() => {
     if (isGuest) saveGuest(contact, newAddress)
   }, [isGuest, contact, newAddress])
+
+  // Asks the backend which gateway is on; Stripe's fields are used only when Stripe is on and a key is set.
+  useEffect(() => {
+    if (!stripePublishableKey()) return
+    api('/api/payments/config')
+      .then((data) => setPaymentConfig(data))
+      .catch(() => setPaymentConfig({ gateway: 'fake' }))
+  }, [])
 
   useEffect(() => {
     if (!isGuest || cart.items.length === 0) {
@@ -183,6 +204,7 @@ const Checkout = () => {
     }
   }
 
+  // Returns the first problem with the guest's details, or an empty string.
   const guestProblem = () => {
     if (!contact.first_name.trim() || !contact.last_name.trim()) return 'Enter your first and last name.'
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(contact.email.trim())) return 'Enter a valid email address.'
@@ -192,16 +214,24 @@ const Checkout = () => {
     return ''
   }
 
-  const placeOrder = async () => {
-    const problem = (isGuest && guestProblem()) || cardError(card)
+  // Validates, gets a payment token, creates a guest session if needed, then places the order; true when it worked.
+  const placeOrder = async (walletToken) => {
+    const problem = (isGuest && guestProblem()) || (useStripeFields ? '' : cardError(card))
     if (problem) {
       setOrderError(problem)
-      return
+      return false
     }
 
     setOrderError('')
     setPlacing(true)
     try {
+      let token = walletToken
+      if (typeof token !== 'string') {
+        if (!useStripeFields) token = cardToken(card)
+        else if (tokenGetterRef.current) token = await tokenGetterRef.current()
+        else throw new Error('The payment form is still loading. Try again in a moment.')
+      }
+
       let chosenAddressId = addressId
       if (isGuest) {
         const started = await guestCheckout(
@@ -212,17 +242,20 @@ const Checkout = () => {
       }
       const data = await api('/api/orders', {
         method: 'POST',
-        body: { address_id: chosenAddressId, payment_token: cardToken(card), idempotency_key: checkoutKey.current },
+        body: { address_id: chosenAddressId, payment_token: token, idempotency_key: checkoutKey.current },
       })
       clearGuest()
       await Promise.all([reloadCart(), reloadProducts()])
       navigate('/orders', { state: { justPlaced: true, orderNumber: data.order.order_number } })
+      return true
     } catch (err) {
       setOrderError(err.message)
       setPlacing(false)
+      return false
     }
   }
 
+  // One input bound to a guest contact field.
   const contactField = (name, placeholder, extra = {}) => (
     <input
       className="border border-gray-300 px-3 py-2 w-full"
@@ -234,6 +267,13 @@ const Checkout = () => {
   )
 
   const totals = isGuest ? estimate : preview
+
+  const useStripeFields = paymentConfig?.gateway === 'stripe' && Boolean(stripePublishableKey())
+  const billing = isGuest
+    ? { name: `${contact.first_name} ${contact.last_name}`.trim(), email: contact.email.trim() }
+    : { name: user?.full_name, email: user?.email }
+  // The wallet sheet may open only when the customer's details are complete.
+  const walletProblem = () => (isGuest ? guestProblem() : addressId ? '' : 'Choose a delivery address first.')
 
   const field = (name, placeholder, extra = {}) => (
     <input
@@ -326,47 +366,68 @@ const Checkout = () => {
         <div className="text-xl sm:text-2xl mt-4">
           <TextContent text1={'PAYMENT'} text2={'METHOD'} />
         </div>
-        <div className="flex flex-col gap-3 border border-gray-300 rounded px-4 py-4">
-          <div className="flex items-center justify-between text-sm text-gray-700">
-            <p className="font-medium flex items-center gap-2"><CardIcon className="w-5" /> Pay with card</p>
-            <p className="flex items-center gap-1 text-xs text-gray-500"><LockIcon className="w-3.5" /> Secure payment</p>
-          </div>
-          <input
-            className="border border-gray-300 rounded py-1.5 px-3.5 w-full"
-            placeholder="Name on card"
-            autoComplete="off"
-            value={card.name}
-            onChange={(e) => setCard({ ...card, name: e.target.value })}
-          />
-          <input
-            className="border border-gray-300 rounded py-1.5 px-3.5 w-full"
-            placeholder="Card number"
-            autoComplete="off"
-            inputMode="numeric"
-            value={card.number}
-            onChange={(e) => setCard({ ...card, number: formatNumber(e.target.value) })}
-          />
-          <div className="flex gap-3">
+        {paymentConfig === null ? (
+          <p className="text-sm text-gray-500">Loading payment options...</p>
+        ) : useStripeFields ? (
+          <>
+            <StripePayment
+              amountText={(totals && totals.grand_total) || cart.estimated_total}
+              currency={paymentConfig.currency || 'usd'}
+              billing={billing}
+              tokenGetterRef={tokenGetterRef}
+              walletProblem={walletProblem}
+              onWalletToken={placeOrder}
+              onWalletError={setOrderError}
+            />
+            {stripePublishableKey().startsWith('pk_test_') && (
+              <p className="text-xs text-gray-500 -mt-4">Test mode: no real card is charged. Use 4242 4242 4242 4242 to be approved or 4000 0000 0000 0002 to be declined, with any future expiry, any CVC and any ZIP code.</p>
+            )}
+          </>
+        ) : (
+          <>
+          <div className="flex flex-col gap-3 border border-gray-300 rounded px-4 py-4">
+            <div className="flex items-center justify-between text-sm text-gray-700">
+              <p className="font-medium flex items-center gap-2"><CardIcon className="w-5" /> Pay with card</p>
+              <p className="flex items-center gap-1 text-xs text-gray-500"><LockIcon className="w-3.5" /> Secure payment</p>
+            </div>
             <input
               className="border border-gray-300 rounded py-1.5 px-3.5 w-full"
-              placeholder="MM/YY"
+              placeholder="Name on card"
               autoComplete="off"
-              inputMode="numeric"
-              value={card.expiry}
-              onChange={(e) => setCard({ ...card, expiry: formatExpiry(e.target.value) })}
+              value={card.name}
+              onChange={(e) => setCard({ ...card, name: e.target.value })}
             />
             <input
               className="border border-gray-300 rounded py-1.5 px-3.5 w-full"
-              placeholder="CVC"
+              placeholder="Card number"
               autoComplete="off"
               inputMode="numeric"
-              maxLength={4}
-              value={card.cvc}
-              onChange={(e) => setCard({ ...card, cvc: digitsOnly(e.target.value) })}
+              value={card.number}
+              onChange={(e) => setCard({ ...card, number: formatNumber(e.target.value) })}
             />
+            <div className="flex gap-3">
+              <input
+                className="border border-gray-300 rounded py-1.5 px-3.5 w-full"
+                placeholder="MM/YY"
+                autoComplete="off"
+                inputMode="numeric"
+                value={card.expiry}
+                onChange={(e) => setCard({ ...card, expiry: formatExpiry(e.target.value) })}
+              />
+              <input
+                className="border border-gray-300 rounded py-1.5 px-3.5 w-full"
+                placeholder="CVC"
+                autoComplete="off"
+                inputMode="numeric"
+                maxLength={4}
+                value={card.cvc}
+                onChange={(e) => setCard({ ...card, cvc: digitsOnly(e.target.value) })}
+              />
+            </div>
           </div>
-        </div>
-        <p className="text-xs text-gray-500 -mt-4">Test mode: no real card is charged. Use 4242 4242 4242 4242 to be approved or 4000 0000 0000 0002 to be declined, with any future expiry and any CVC.</p>
+          <p className="text-xs text-gray-500 -mt-4">Test mode: no real card is charged. Use 4242 4242 4242 4242 to be approved or 4000 0000 0000 0002 to be declined, with any future expiry and any CVC.</p>
+          </>
+        )}
       </div>
 
       {/* Order summary */}
@@ -399,7 +460,7 @@ const Checkout = () => {
         {orderError && <p className="mt-4 text-sm text-red-600" role="alert">{orderError}</p>}
 
         <button
-          onClick={placeOrder}
+          onClick={() => placeOrder()}
           disabled={!totals || placing}
           className="w-full bg-green-600 text-white text-sm mt-8 px-8 py-3 active:bg-green-400 disabled:opacity-50"
         >
@@ -410,6 +471,7 @@ const Checkout = () => {
   )
 }
 
+// One label and value line in the order summary.
 const Row = ({ label, value }) => (
   <div className="flex justify-between">
     <p>{label}</p>

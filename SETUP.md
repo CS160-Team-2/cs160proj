@@ -320,7 +320,15 @@ PAYMENT_GATEWAY=stripe
 STRIPE_SECRET_KEY=sk_test_...your key...
 ```
 
-Then restart Flask. Nothing else changes, and no extra package is needed.
+Then restart Flask. The backend needs no extra package.
+
+To show Stripe's own card field on the checkout page, also copy the **Publishable key** (starts with `pk_test_`, same page of the dashboard) into `frontend/.env`:
+
+```
+VITE_STRIPE_PUBLISHABLE_KEY=pk_test_...your publishable key...
+```
+
+Restart Vite. The page shows Stripe's fields only when the backend gateway is `stripe` **and** this key is set; otherwise it keeps the built-in test form. The publishable key is meant for the browser. The secret `sk_` key must never go in `frontend/.env`.
 
 **Never commit the key or paste it into a public channel, an issue, or a pull request.** `.env` is already in `.gitignore`. Do not put it in GitHub secrets either: those are only visible to GitHub's automated checks, which do not need it, and never reach your laptop or the demo server. The demo server gets the key in its own `backend/.env`.
 
@@ -336,7 +344,17 @@ Check out in the shop with any future expiry date, any 3 digit security code, an
 | `4000 0000 0000 9995` | Declined: insufficient funds |
 | `4000 0000 0000 0069` | Declined: card expired |
 
-The payment, or the declined attempt, appears in the Stripe dashboard under **Payments**. Only these test numbers work with Stripe for now. Any other number is turned down as an invalid card, because the checkout page does not yet use Stripe's own card field.
+The payment, or the declined attempt, appears in the Stripe dashboard under **Payments**.
+
+**With the publishable key set**, the card form is Stripe's own, so any [Stripe test card](https://docs.stripe.com/testing) works (use any future expiry, any CVC and any ZIP code). **Without it**, the built-in form only accepts the five numbers above.
+
+**Apple Pay and Google Pay** buttons appear above the card form only when the customer's browser and device support them. They need more setup than cards:
+
+- Stripe requires HTTPS and a registered domain, and `localhost` does not qualify. To try them, expose the site on an HTTPS address (for example with a tunnel such as ngrok) and add that domain in the Stripe dashboard under **Settings, Payment methods, Payment method domains**.
+- Apple Pay needs Safari on an Apple device with a card in Wallet. Google Pay needs Chrome signed in to a Google account with a saved card.
+- Stripe's wallet testing page has the details: https://docs.stripe.com/testing/wallets
+
+The buttons were built to Stripe's documentation but have not been tried on a real device yet. PayPal is not offered yet (see the decision log, D17).
 
 ### If something goes wrong
 
@@ -475,6 +493,7 @@ Backend settings go in `backend/.env`; frontend settings in `frontend/.env`. Bot
 | `FLASK_PORT` | `5001` | Port Flask listens on |
 | `FRONTEND_ORIGIN` | `http://localhost:5173` | The only address allowed to call the API |
 | `SECRET_KEY` | development key | Signs the sign-in cookie. Set your own on any shared server |
+| `CART_SESSION_DAYS` | `14` | How many days a guest's cart and a customer's sign-in last after their last visit. Each visit extends it. Staff sessions end with the browser |
 | `PAYMENT_GATEWAY` | `fake` | `fake` or `stripe` |
 | `STRIPE_SECRET_KEY` | none | A `sk_test_` key, used when the gateway is `stripe` |
 | `MAP_PROVIDER` | `fake` | `fake`, `mapbox` or `google` |
