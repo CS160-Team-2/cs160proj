@@ -35,6 +35,12 @@ describe('StoreItem', () => {
     expect(screen.getByText('1 lb')).toBeInTheDocument()
   })
 
+  test('shows the product number under the name', () => {
+    renderStoreItem()
+
+    expect(screen.getByText('Product number: 1')).toBeInTheDocument()
+  })
+
   test('links to the correct item page', () => {
     renderStoreItem()
 

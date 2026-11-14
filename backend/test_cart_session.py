@@ -98,3 +98,57 @@ def test_guest_cart_survives_signing_in_and_signing_out_clears_the_session(app):
 # The 14-day default comes from CART_SESSION_DAYS.
 def test_the_lifetime_comes_from_the_setting(app):
     assert app.config["PERMANENT_SESSION_LIFETIME"] == timedelta(days=14)
+
+
+# Signs in as the seeded customer with a "Remember me" choice and returns the client.
+def _login_with(app, remember):
+    client = app.test_client()
+    payload = {"email": CUSTOMER[0], "password": CUSTOMER[1]}
+    if remember is not None:
+        payload["remember"] = remember
+    assert client.post("/api/auth/login", json=payload).status_code == 200
+    return client
+
+
+# Remember me ticked (or not mentioned) gives the 14-day cookie.
+@pytest.mark.parametrize("remember", [True, None])
+def test_remember_me_keeps_the_sign_in_for_two_weeks(app, remember):
+    assert 13 < _days_left(_login_with(app, remember)) <= 14
+
+
+# Remember me unticked gives a cookie that ends with the browser, yet the customer stays signed in meanwhile.
+def test_without_remember_me_the_sign_in_ends_with_the_browser(app):
+    customer = _login_with(app, False)
+
+    assert _expires(customer) is None
+    assert customer.get("/api/auth/me").status_code == 200
+    customer.post("/api/cart/items", json={"product_id": APPLES_ID, "quantity": 1})
+    assert _expires(customer) is None
+
+
+# Registering follows the same choice.
+@pytest.mark.parametrize("remember, persistent", [(False, False), (True, True)])
+def test_registering_follows_the_remember_choice(app, remember, persistent):
+    client = app.test_client()
+    response = client.post("/api/auth/register", json={
+        "email": "new@example.com", "password": "long-enough-1", "full_name": "New", "remember": remember})
+    assert response.status_code == 201
+    assert (_expires(client) is not None) is persistent
+
+
+# A guest's cart keeps its 14 days even though the later sign-in was not remembered.
+def test_a_guest_cart_still_lasts_two_weeks_before_signing_in(app):
+    visitor = app.test_client()
+    visitor.post("/api/cart/items", json={"product_id": APPLES_ID, "quantity": 1})
+    assert 13 < _days_left(visitor) <= 14
+
+    visitor.post("/api/auth/login", json={"email": CUSTOMER[0], "password": CUSTOMER[1], "remember": False})
+    assert _expires(visitor) is None
+    assert visitor.get("/api/cart").get_json()["cart"]["item_count"] >= 1
+
+
+# Staff stay browser-session whatever the box says.
+def test_staff_ignore_remember_me(app):
+    client = app.test_client()
+    client.post("/api/auth/login", json={"email": MANAGER[0], "password": MANAGER[1], "remember": True})
+    assert _expires(client) is None

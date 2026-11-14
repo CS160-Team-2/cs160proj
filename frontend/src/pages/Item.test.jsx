@@ -80,4 +80,11 @@ describe('Item', () =>
     expect(screen.queryByRole('button', { name: 'ADD TO CART' })).not.toBeInTheDocument()
     expect(screen.queryByText('Currently unavailable')).not.toBeInTheDocument()
   })
+
+  test('shows the product number', () =>
+  {
+    renderItem(2)
+
+    expect(screen.getByText('Product number: 2')).toBeInTheDocument()
+  })
 })

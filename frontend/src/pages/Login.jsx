@@ -22,6 +22,7 @@ const Login = () => {
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [remember, setRemember] = useState(true)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
@@ -33,8 +34,8 @@ const Login = () => {
     setSubmitting(true)
     try {
       const user = creating
-        ? await register(fullName, email, password)
-        : await signIn(email, password)
+        ? await register(fullName, email, password, remember)
+        : await signIn(email, password, remember)
       // Managers start on the order dashboard, employees on the inventory console.
       const staffHome = user.role === 'manager' ? '/manager' : '/inventory'
       navigate(user.role === 'customer' ? next : staffHome)
@@ -92,6 +93,11 @@ const Login = () => {
       />
 
       {error && <p className="w-full text-sm text-red-600" role="alert">{error}</p>}
+
+      <label className="w-full flex items-center gap-2 text-sm -mt-2">
+        <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+        Remember me
+      </label>
 
       <div className="w-full flex justify-end text-sm -mt-2">
         <button type="button" onClick={switchMode} className="text-green-600 underline cursor-pointer">

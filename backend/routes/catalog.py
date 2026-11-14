@@ -36,6 +36,12 @@ SORTS = {
 }
 
 
+# Reads "12" or "#12" as a product number; None when the search is not a plain number.
+def _product_number(search):
+    text = search[1:] if search.startswith("#") else search
+    return int(text) if text.isascii() and text.isdigit() and len(text) <= 9 else None
+
+
 def product_json(row):
     return {
         "product_id": row["product_id"],
@@ -61,8 +67,14 @@ def list_products():
 
     search = request.args.get("search", "").strip()
     if search:
-        where.append("p.name LIKE %s")
-        params.append(f"%{search}%")
+        number = _product_number(search)
+        if number is None:
+            where.append("p.name LIKE %s")
+            params.append(f"%{search}%")
+        else:
+            # A whole number such as 12 or #12 finds product 12 as well as names containing it.
+            where.append("(p.name LIKE %s OR p.product_id = %s)")
+            params.extend([f"%{search}%", number])
 
     category = request.args.get("category", "").strip()
     if category:

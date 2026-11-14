@@ -57,11 +57,13 @@ const Products = () => {
     setAppliedRanges([])
   }
 
-  // Same rule as the backend's ?search=: the name contains it, ignoring capitals.
+  // Same rule as the backend's ?search=: the name contains it (ignoring capitals), or the product number matches.
   const query = search.trim().toLowerCase()
+  // A plain number (12 or #12) also finds the product with that number.
+  const productNumber = /^#?\d{1,9}$/.test(query) ? String(Number(query.replace('#', ''))) : null
 
   let visible = shuffled.filter((item) => {
-    if (query && !item.name.toLowerCase().includes(query)) return false
+    if (query && !item.name.toLowerCase().includes(query) && String(item.product_id) !== productNumber) return false
     if (appliedCategories.length > 0 && !appliedCategories.includes(item.category)) return false
     if (appliedRanges.length > 0) {
       const price = Number(item.price)
@@ -131,7 +133,7 @@ const Products = () => {
             <div className="flex items-center border-2 border-gray-300 text-sm w-full sm:w-auto">
               <input
                 type="search"
-                placeholder="Search products"
+                placeholder="Search by name or product number"
                 aria-label="Search products"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}

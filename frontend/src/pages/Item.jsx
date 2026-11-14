@@ -57,6 +57,7 @@ const Item = () => {
           <h1 className="font-medium text-2xl mt-2">
             {itemData.name}
           </h1>
+          <p className="mt-1 text-sm text-gray-500">Product number: {itemData.product_id}</p>
           <p className="mt-5 text-3xl font-bold">{currency}{itemData.price}</p>
           <p className="mt-2 text-sm text-gray-500">{itemData.unit_weight_lb} lb</p>
           {itemData.stock > 0 && (

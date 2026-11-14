@@ -180,3 +180,27 @@ def test_visitors_can_fill_a_cart_and_keep_it_when_they_sign_in(client):
 
 def test_staff_do_not_have_carts(employee):
     assert employee.get("/api/cart").status_code == 403
+
+
+# A number in the search box finds the product with that number as well as names containing it.
+@pytest.mark.parametrize("search", ["1", "#1"])
+def test_search_by_product_number(client, search):
+    found = client.get("/api/products", query_string={"search": search}).get_json()["products"]
+    ids = [p["product_id"] for p in found]
+    assert APPLES_ID in ids
+    assert all(p["product_id"] == 1 or "1" in p["name"] for p in found)
+
+
+# A number that is not a product, or is huge, returns nothing instead of an error.
+@pytest.mark.parametrize("search", ["99999", "123456789012345678901234567890"])
+def test_search_by_a_number_with_no_product(client, search):
+    response = client.get("/api/products", query_string={"search": search})
+    assert response.status_code == 200
+    assert response.get_json()["products"] == []
+
+
+# Words still match names only, and a name that merely contains digits is found by them.
+def test_search_by_name_is_unchanged_and_ids_are_not_matched_as_text(client):
+    found = client.get("/api/products?search=apple").get_json()["products"]
+    assert found and all("apple" in p["name"].lower() for p in found)
+    assert client.get("/api/products", query_string={"search": "1 OR 1=1"}).get_json()["products"] == []

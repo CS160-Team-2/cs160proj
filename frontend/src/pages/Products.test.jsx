@@ -69,4 +69,23 @@ describe('Products search', () => {
     expect(screen.getByLabelText('Search products')).toHaveValue('')
     expect(screen.getAllByText(/Apple|Broccoli/)).toHaveLength(3)
   })
+
+  test('a product number finds that product, with or without the # sign', async () => {
+    const user = userEvent.setup()
+    renderProducts()
+
+    await user.type(screen.getByLabelText('Search products'), '3')
+    expect(screen.getByText('Broccoli Crown')).toBeInTheDocument()
+    expect(screen.queryByText('Fuji Apple')).not.toBeInTheDocument()
+
+    await user.clear(screen.getByLabelText('Search products'))
+    await user.type(screen.getByLabelText('Search products'), '#2')
+    expect(screen.getByText('Green Apple')).toBeInTheDocument()
+    expect(screen.queryByText('Broccoli Crown')).not.toBeInTheDocument()
+  })
+
+  test('the search box says numbers work too', () => {
+    renderProducts()
+    expect(screen.getByPlaceholderText('Search by name or product number')).toBeInTheDocument()
+  })
 })

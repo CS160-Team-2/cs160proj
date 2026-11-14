@@ -77,13 +77,18 @@ def _load_user(user_id):
     )
 
 
-def _start_session(user):
+# Reads the "Remember me" choice; only an explicit false turns it off, so older callers keep the 14-day sign-in.
+def _remember(data):
+    return data.get("remember") is not False
+
+
+def _start_session(user, remember=True):
     # Anything a signed-out visitor put in their cart survives sign-in.
     guest_cart = session.get("guest_cart")
     session.clear()
     session["user_id"] = user["user_id"]
-    # Shoppers stay signed in for the cart lifetime; staff end with the browser.
-    session.permanent = user["role"] == "customer"
+    # Shoppers who tick "Remember me" stay signed in for the cart lifetime; everyone else ends with the browser.
+    session.permanent = user["role"] == "customer" and remember
     if user["role"] == "customer" and guest_cart:
         cart_routes.merge_guest_cart(user["user_id"], guest_cart)
 
@@ -102,7 +107,7 @@ def register():
 
     user_id = _create_user(email, password, full_name, "customer", phone)
     user = _load_user(user_id)
-    _start_session(user)
+    _start_session(user, _remember(data))
     return ok(201, message="Account created", user=user_json(user))
 
 
@@ -120,7 +125,7 @@ def login():
     if not row["is_active"]:
         raise ApiError("This account has been deactivated", 403, "ACCOUNT_INACTIVE")
 
-    _start_session(row)
+    _start_session(row, _remember(data))
     return ok(message="Signed in", user=user_json(row))
 
 

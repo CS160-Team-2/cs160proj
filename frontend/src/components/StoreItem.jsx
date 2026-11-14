@@ -2,7 +2,7 @@ import React, { useContext } from 'react'
 import { Link } from 'react-router-dom'
 import { StoreContext } from '../context/StoreContext'
 
-// One product card in the grids: picture, price, weight and stock.
+// One product card in the grids: picture, name, product number, price, weight and stock.
 const StoreItem = ({ id, name, image, price, weight, stock, available }) => {
 
     const { currency } = useContext(StoreContext)
@@ -13,7 +13,8 @@ const StoreItem = ({ id, name, image, price, weight, stock, available }) => {
             <img className={`aspect-square object-cover hover:scale-120 transition ease-in-out ${available ? '' : 'opacity-50'}`} src={image} alt={name} />
         </div>
 
-        <p className="pt-3 pb-1 text-sm">{name}</p>
+        <p className="pt-3 text-sm">{name}</p>
+        <p className="pb-1 text-xs text-gray-500">Product number: {id}</p>
         <p className="text-sm font-bold">{currency}{price}</p>
         <p className="text-xs text-gray-500">{weight} lb</p>
         {available && stock !== undefined && <p className="text-xs text-gray-500">In stock: <span className="font-medium text-green-600">{stock}</span></p>}

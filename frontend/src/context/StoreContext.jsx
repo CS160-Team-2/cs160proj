@@ -77,10 +77,12 @@ const StoreContextProvider = (props) => {
         return data.user
     }
 
-    const signIn = (email, password) => startSession('/api/auth/login', { email, password })
+    // Signs in; remember=false makes the sign-in end when the browser closes.
+    const signIn = (email, password, remember = true) => startSession('/api/auth/login', { email, password, remember })
 
-    const register = (fullName, email, password) =>
-        startSession('/api/auth/register', { full_name: fullName, email, password })
+    // Creates an account and signs in, with the same remember choice as signIn.
+    const register = (fullName, email, password, remember = true) =>
+        startSession('/api/auth/register', { full_name: fullName, email, password, remember })
 
     // Creates a guest account for the order and signs the browser in as that guest.
     const guestCheckout = async (contact, address) => {
