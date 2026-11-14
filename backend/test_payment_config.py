@@ -9,12 +9,13 @@ pytestmark = [requires_mysql, pytest.mark.usefixtures("fresh_db")]
 
 # The fake gateway is the default, with US dollars.
 def test_the_fake_gateway_is_reported_by_default(client, monkeypatch):
-    monkeypatch.delenv("PAYMENT_GATEWAY", raising=False)
-    monkeypatch.delenv("STRIPE_CURRENCY", raising=False)
+    for name in ("PAYMENT_GATEWAY", "STRIPE_CURRENCY", "PAYPAL_CLIENT_ID", "PAYPAL_CLIENT_SECRET", "PAYPAL_CURRENCY"):
+        monkeypatch.delenv(name, raising=False)
 
     body = client.get("/api/payments/config").get_json()
 
-    assert body == {"ok": True, "gateway": "fake", "currency": "usd"}
+    assert body == {"ok": True, "gateway": "fake", "currency": "usd",
+                    "paypal": {"enabled": False, "client_id": "", "currency": "USD"}}
 
 
 # Switching to Stripe is reported, and the currency follows the setting.

@@ -202,7 +202,7 @@ const OrderRow = ({ order, currency, onChanged }) => {
             <p className="font-medium">Customer and address</p>
             <p className="text-gray-600">{detail.customer.full_name}{detail.customer.is_guest ? ' (guest checkout)' : ''} · {detail.customer.email}{detail.customer.phone ? ` · ${detail.customer.phone}` : ''}</p>
             <p className="text-gray-600">{detail.address.street}, {detail.address.city}, {detail.address.state} {detail.address.zip_code}</p>
-            <p className="text-gray-500">{detail.payment ? `Paid with a card ending ${detail.payment.card_last4}` : 'No approved payment on record'}</p>
+            <p className="text-gray-500">{detail.payment ? (detail.payment.method === 'paypal' ? 'Paid with PayPal' : `Paid with a card ending ${detail.payment.card_last4}`) : 'No approved payment on record'}</p>
           </div>
           <div className="sm:col-span-2 flex flex-col gap-1">
             <ArrivalEstimate value={tracking?.estimated_arrival} />

@@ -354,7 +354,7 @@ The payment, or the declined attempt, appears in the Stripe dashboard under **Pa
 - Apple Pay needs Safari on an Apple device with a card in Wallet. Google Pay needs Chrome signed in to a Google account with a saved card.
 - Stripe's wallet testing page has the details: https://docs.stripe.com/testing/wallets
 
-The buttons were built to Stripe's documentation but have not been tried on a real device yet. PayPal is not offered yet (see the decision log, D17).
+The buttons were built to Stripe's documentation but have not been tried on a real device yet. PayPal is a separate payment method, set up in the next section.
 
 ### If something goes wrong
 
@@ -363,6 +363,46 @@ The buttons were built to Stripe's documentation but have not been tried on a re
 - **A key leaked:** go to **Developers → API keys** in the Stripe dashboard and roll (replace) it. Because it is a test key, no real money was at risk.
 
 To go back to the offline fake, set `PAYMENT_GATEWAY=fake` and restart Flask.
+
+---
+
+## Optional: Turn on PayPal (sandbox)
+
+PayPal is offered on the checkout page only when the backend has PayPal keys. Without them nothing changes. With them, the payment section shows two radio buttons, **Credit or debit card** (Stripe) and **PayPal**. Choosing PayPal replaces the card form and the Place Order button with PayPal's own button. Only the PayPal button is shown: cards are paid with the Stripe card field, so PayPal's Pay Later and its Debit or Credit Card button are switched off. The money is taken only after the customer approves it at PayPal, and the server checks that the approved amount equals the order total before it captures it.
+
+**Sandbox only.** The sandbox is PayPal's test system and never moves real money. OFS refuses a live PayPal account unless you set both `PAYPAL_ENV=live` and `PAYPAL_ALLOW_LIVE=1`, which nobody on this project should do.
+
+### 1. Create a sandbox app
+
+1. Sign in at [developer.paypal.com](https://developer.paypal.com) with any PayPal account. A free personal account is enough for the sandbox. A business account is only needed to go live, which this project never does.
+2. Open **Apps & Credentials** and make sure **Sandbox** is selected (not Live). Menu names can differ slightly from this guide.
+3. Press **Create App**, choose the **Merchant** type, and give it a name.
+4. Copy the app's **Client ID** and **Secret**.
+
+### 2. Put them in `backend/.env`
+
+```
+PAYPAL_CLIENT_ID=...your sandbox client id...
+PAYPAL_CLIENT_SECRET=...your sandbox secret...
+```
+
+Restart Flask. No key is needed in `frontend/.env`: the checkout page reads the public client id from the backend. **Never commit the secret or paste it into chat.**
+
+### 3. Try it
+
+1. Add something to the cart and go to checkout. (Guests fill in their details first. The PayPal buttons refuse to start until the details are complete.)
+2. Choose **PayPal**, then press the PayPal button.
+3. Sign in with a **sandbox buyer** account. In the developer dashboard, open **Testing tools, Sandbox accounts**: a personal (buyer) account is created for you, and its email and password are shown there.
+4. Approve the payment. The order is placed, and the order page says "Paid with PayPal".
+
+
+### If something goes wrong
+
+- **No PayPal radio button on checkout:** both keys must be set in `backend/.env` and Flask restarted. `GET /api/payments/config` shows `"paypal": {"enabled": true, ...}` when it is on.
+- **"PayPal refused our credentials" in the Flask terminal:** the Client ID and Secret do not belong to the same sandbox app, or a live key was used in sandbox.
+- **"The PayPal payment does not match this order's total":** the cart changed after the PayPal order was created. Start the payment again.
+- **The PayPal popup is blocked:** allow pop-ups for the site.
+- To turn PayPal off, remove the keys or set `PAYPAL_ENABLED=0` and restart Flask.
 
 ---
 
@@ -496,6 +536,8 @@ Backend settings go in `backend/.env`; frontend settings in `frontend/.env`. Bot
 | `CART_SESSION_DAYS` | `14` | How many days a guest's cart and a customer's sign-in last after their last visit. Each visit extends it. Staff sessions end with the browser |
 | `PAYMENT_GATEWAY` | `fake` | `fake` or `stripe` |
 | `STRIPE_SECRET_KEY` | none | A `sk_test_` key, used when the gateway is `stripe` |
+| `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | none | PayPal sandbox app keys. Both set means checkout offers PayPal |
+| `PAYPAL_ENV`, `PAYPAL_CURRENCY`, `PAYPAL_ENABLED` | `sandbox`, `USD`, `1` | Sandbox or live (live also needs `PAYPAL_ALLOW_LIVE=1`), currency, and an off switch (`0`) |
 | `MAP_PROVIDER` | `fake` | `fake`, `mapbox` or `google` |
 | `MAPBOX_ACCESS_TOKEN`, `GOOGLE_MAPS_API_KEY` | none | Server-side map keys |
 | `VEHICLE_LINK`, `VEHICLE_SIMULATION_SECONDS` | `simulated`, `20` | The simulated vehicle completes one stop every N seconds after dispatch. `0` means stops are only completed when reported |

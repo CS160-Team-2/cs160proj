@@ -1,6 +1,7 @@
-import { createContext, useCallback, useEffect, useState } from 'react'
+import { createContext, useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { imageFor } from '../productImage'
+import { SESSION_EXPIRED } from '../sessionEvents'
 
 export const StoreContext = createContext()
 
@@ -20,6 +21,10 @@ const StoreContextProvider = (props) => {
     const [cart, setCart] = useState(emptyCart)
     // undefined while we ask the backend, then the user or null.
     const [user, setUser] = useState(undefined)
+    // True after a signed-in customer's session ran out, until they see the notice.
+    const [sessionExpired, setSessionExpired] = useState(false)
+    const userRef = useRef(user)
+    userRef.current = user
 
     const loadProducts = useCallback(async () => {
         try {
@@ -49,6 +54,19 @@ const StoreContextProvider = (props) => {
             .then((data) => setUser(data.user))
             .catch(() => setUser(null))
     }, [loadProducts, loadCart])
+
+    // When the backend reports the session ended, signs the customer out here too and raises the notice (guests just start over).
+    useEffect(() => {
+        const handleExpired = () => {
+            const current = userRef.current
+            if (!current) return
+            setUser(null)
+            if (!current.is_guest && current.role) setSessionExpired(true)
+            loadCart()
+        }
+        window.addEventListener(SESSION_EXPIRED, handleExpired)
+        return () => window.removeEventListener(SESSION_EXPIRED, handleExpired)
+    }, [loadCart])
 
     // Signing in merges anything added to the cart while signed out into
     // the saved cart, so the cart is reloaded afterwards.
@@ -113,6 +131,8 @@ const StoreContextProvider = (props) => {
         register,
         guestCheckout,
         updateUser: setUser,
+        sessionExpired,
+        dismissSessionExpired: () => setSessionExpired(false),
         signOut,
         cart,
         cartItems: cart.items.map(withImage),

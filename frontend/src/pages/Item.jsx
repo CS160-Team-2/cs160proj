@@ -1,5 +1,6 @@
 import React, { useContext, useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
+import ProblemPanel from '../components/ProblemPanel'
 import { StoreContext } from '../context/StoreContext'
 import RelatedItems from '../components/RelatedItems'
 
@@ -7,7 +8,7 @@ import RelatedItems from '../components/RelatedItems'
 const Item = () => {
 
   const { itemId } = useParams()
-  const { products, currency, shoppingCartItems, addToCart } = useContext(StoreContext)
+  const { products, productsLoading, productsError, currency, shoppingCartItems, addToCart } = useContext(StoreContext)
 
   const [quantity, setQuantity] = useState('1')
   const [message, setMessage] = useState({ text: '', error: false })
@@ -99,7 +100,11 @@ const Item = () => {
 
       <RelatedItems id={itemData.product_id} category={itemData.category} />
     </div>
-  ) : <div className="opacity-0"></div>
+  ) : (productsLoading || productsError) ? <div className="opacity-0"></div> : (
+    <ProblemPanel title="We could not find that product" message="It may have been removed, or the address may be wrong.">
+      <Link to="/products" className="bg-green-600 text-white px-8 py-3 text-sm">BROWSE PRODUCTS</Link>
+    </ProblemPanel>
+  )
 }
 
 export default Item

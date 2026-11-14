@@ -1,5 +1,6 @@
 import React, { useContext, useEffect, useState } from 'react'
 import { Navigate, useNavigate } from 'react-router-dom'
+import { loginUrl } from '../redirects'
 import { StoreContext } from '../context/StoreContext'
 import { api } from '../api'
 import TextContent from '../components/TextContent'
@@ -341,7 +342,7 @@ const Account = () => {
   const navigate = useNavigate()
 
   if (user === undefined) return null
-  if (!user) return <Navigate to="/login?next=/account" replace />
+  if (!user) return <Navigate to={loginUrl('/account')} replace />
   if (user.role !== 'customer' || user.is_guest) return <Navigate to={user.role === 'customer' ? '/orders' : '/'} replace />
 
   // Signs out and returns Home with the 'account deleted' message.

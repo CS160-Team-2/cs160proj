@@ -43,8 +43,8 @@ The Flask API is complete for: catalog, cart, accounts, addresses, checkout and 
 ### Not built yet
 
 - Manager screens for the order monitor, delivery status board and trip planning (the backend routes exist; the frontend pages are in progress).
-- Wallet payments and PayPal are not verified or built yet: Apple Pay and Google Pay buttons exist but have not been tried on a real device, and PayPal is not offered.
-- A real self-driving vehicle (a simulator is used) and Apple Pay or PayPal.
+- Apple Pay, Google Pay and PayPal are built but not yet tried against live test accounts or devices: the wallet buttons need an HTTPS domain and a supported device, and PayPal needs sandbox keys.
+- A real self-driving vehicle (a simulator is used).
 
 ## Tech stack
 
@@ -149,6 +149,7 @@ After pulling changes, run `npm install` in `frontend/` and `pip install -r requ
 | `CART_SESSION_DAYS` | `14` | How many days a guest's cart and a customer's sign-in last after their last visit. Each visit extends it. Staff sessions end with the browser |
 | `PAYMENT_GATEWAY` | `fake` | `fake` or `stripe` |
 | `STRIPE_SECRET_KEY` | none | A test key (`sk_test_...`), only with `PAYMENT_GATEWAY=stripe` |
+| `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | none | PayPal sandbox app keys. Both set means checkout offers PayPal next to the card form |
 | `MAP_PROVIDER` | `fake` | `fake`, `mapbox` or `google` |
 | `MAPBOX_ACCESS_TOKEN`, `GOOGLE_MAPS_API_KEY` | none | Server-side map keys |
 | `VEHICLE_LINK`, `VEHICLE_SIMULATION_SECONDS` | `simulated`, `20` | The simulated vehicle completes one stop every N seconds after dispatch. `0` means stops are only completed when reported |
@@ -184,6 +185,10 @@ Everything runs offline with the built-in fakes. Turn these on only when needed,
 | `4000 0000 0000 0069` | Declined, expired card |
 
 A live key (`sk_live_...`) is refused unless `STRIPE_ALLOW_LIVE=1`, so no real money can move by accident.
+
+### PayPal (sandbox)
+
+Create a sandbox app at developer.paypal.com and put its Client ID and Secret in `backend/.env` as `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET`, then restart Flask. Checkout then shows radio buttons: **Credit or debit card** and **PayPal**. Only PayPal's own button is shown (cards are paid with Stripe's field). The server verifies the amount before it captures the payment. A live PayPal account is refused unless `PAYPAL_ALLOW_LIVE=1`. Full steps are in [SETUP.md](SETUP.md).
 
 ### Live maps
 
@@ -223,6 +228,12 @@ cd frontend
 E2E_CHANNEL=chrome npm run e2e      # uses the Chrome you already have installed
 # or, once: npx playwright install chromium   then: npm run e2e
 ```
+
+Optional switches:
+
+- `E2E_WEBKIT=1` also runs the tests in WebKit (Safari's engine); install it once with `npx playwright install webkit`.
+- `E2E_ALLOW_ORDERS=1` turns on the tests that place real orders with Stripe test cards. They create guests named `e2e-...@example.test`; remove them afterwards with `python backend/cleanup_e2e.py`.
+- PayPal and Stripe browser tests skip themselves when their keys are not set.
 
 Set `E2E_BACKEND_COMMAND` if your Python path is not `../.venv/bin/python` (for example on Windows). Restart any Flask you already have running first, so the tests use the latest backend code.
 

@@ -16,6 +16,8 @@ const stripe = vi.hoisted(() => ({
   submit: vi.fn(),
   createPaymentMethod: vi.fn(),
   walletEvent: { resolve: vi.fn(), paymentFailed: vi.fn(), billingDetails: { name: 'Wallet Name' } },
+  elementsOptions: [],
+  cardLoadError: null,
 }))
 
 vi.mock('@stripe/stripe-js', () => ({ loadStripe: vi.fn(() => Promise.resolve({})) }))
@@ -23,10 +25,16 @@ vi.mock('@stripe/stripe-js', () => ({ loadStripe: vi.fn(() => Promise.resolve({}
 vi.mock('@stripe/react-stripe-js', async () => {
   const { useEffect } = await import('react')
   return {
-    Elements: ({ children }) => <div>{children}</div>,
-    PaymentElement: () => <div>Stripe card field</div>,
+    Elements: ({ children, options }) => {
+      stripe.elementsOptions.push(options)
+      return <div>{children}</div>
+    },
+    CardElement: ({ onLoadError }) => {
+      useEffect(() => { if (stripe.cardLoadError) onLoadError({ error: { message: stripe.cardLoadError } }) }, [])
+      return <div>Stripe card field</div>
+    },
     useStripe: () => ({ createPaymentMethod: stripe.createPaymentMethod }),
-    useElements: () => ({ submit: stripe.submit }),
+    useElements: () => ({ submit: stripe.submit, getElement: () => ({ card: true }) }),
     ExpressCheckoutElement: ({ onClick, onConfirm, onReady }) => {
       useEffect(() => { onReady({ availablePaymentMethods: { googlePay: true } }) }, [])
       return (
@@ -115,6 +123,8 @@ describe('checkout with Stripe switched on', () => {
     stripe.createPaymentMethod.mockResolvedValue({ paymentMethod: { id: 'pm_test_123' } })
     stripe.walletEvent.resolve = vi.fn()
     stripe.walletEvent.paymentFailed = vi.fn()
+    stripe.cardLoadError = null
+    stripe.elementsOptions = []
     mockApi()
   })
 
@@ -129,6 +139,33 @@ describe('checkout with Stripe switched on', () => {
     expect(screen.queryByPlaceholderText('Card number')).not.toBeInTheDocument()
   })
 
+  test('gives Stripe only options the current Stripe.js accepts', async () => {
+    renderCheckout()
+    await screen.findByText('Stripe card field')
+
+    // Stripe.js refuses the old name "paymentMethodTypes" and then shows no card field at all.
+    const walletOptions = stripe.elementsOptions.find((options) => options && options.mode === 'payment')
+    expect(walletOptions).toMatchObject({ mode: 'payment', currency: 'usd', paymentMethodCreation: 'manual' })
+    expect(walletOptions.amount).toBeGreaterThan(0)
+    stripe.elementsOptions.filter(Boolean).forEach((options) => {
+      expect(options).not.toHaveProperty('paymentMethodTypes')
+    })
+  })
+
+  test('uses the card-only field, which cannot show Bank, Klarna or Link tabs', async () => {
+    renderCheckout()
+
+    expect(await screen.findByText('Stripe card field')).toBeInTheDocument()
+    expect(screen.queryByText(/Klarna|Bank|Link/)).not.toBeInTheDocument()
+  })
+
+  test('tells the customer when Stripe cannot load the card form', async () => {
+    stripe.cardLoadError = 'Invalid API key.'
+    renderCheckout()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The card form could not be loaded: Invalid API key.')
+  })
+
   test('sends only the Stripe payment method id to the backend', async () => {
     const user = userEvent.setup()
     renderCheckout()
@@ -137,10 +174,11 @@ describe('checkout with Stripe switched on', () => {
     await user.click(await readyButton())
 
     expect(await screen.findByText('Order confirmation')).toBeInTheDocument()
-    expect(stripe.submit).toHaveBeenCalled()
-    expect(stripe.createPaymentMethod).toHaveBeenCalledWith(
-      expect.objectContaining({ params: { billing_details: { name: 'Anna Rivera', email: 'anna@example.com' } } }),
-    )
+    expect(stripe.createPaymentMethod).toHaveBeenCalledWith({
+      type: 'card',
+      card: { card: true },
+      billing_details: { name: 'Anna Rivera', email: 'anna@example.com' },
+    })
     expect(api).toHaveBeenCalledWith('/api/orders', {
       method: 'POST',
       body: { address_id: 1, payment_token: 'pm_test_123', idempotency_key: expect.any(String) },
@@ -148,7 +186,7 @@ describe('checkout with Stripe switched on', () => {
   })
 
   test('shows Stripe\'s message and sends no order when the card is incomplete', async () => {
-    stripe.submit.mockResolvedValue({ error: { message: 'Your card number is incomplete.' } })
+    stripe.createPaymentMethod.mockResolvedValue({ error: { message: 'Your card number is incomplete.' } })
     const user = userEvent.setup()
     renderCheckout()
     await screen.findByText('Stripe card field')
@@ -157,7 +195,6 @@ describe('checkout with Stripe switched on', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Your card number is incomplete.')
     expect(api.mock.calls.some(([path]) => path === '/api/orders')).toBe(false)
-    expect(stripe.createPaymentMethod).not.toHaveBeenCalled()
   })
 
   test('a declined payment shows the backend message and keeps the page', async () => {

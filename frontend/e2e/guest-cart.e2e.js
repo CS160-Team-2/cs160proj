@@ -19,14 +19,15 @@ function afterBrowserRestart(state) {
   return { ...state, cookies: state.cookies.filter((cookie) => cookie.expires > now) }
 }
 
-test('a guest keeps the cart after the browser is closed and reopened', async ({ browser }) => {
+test('a guest keeps the cart after the browser is closed and reopened', async ({ browser, browserName }) => {
   const firstVisit = await browser.newContext()
   await addTwoApples(await firstVisit.newPage())
 
   const state = await firstVisit.storageState()
   const session = state.cookies.find((cookie) => cookie.name === 'session')
   const daysLeft = (session.expires - Date.now() / 1000) / DAY_SECONDS
-  expect(daysLeft).toBeGreaterThan(13)
+  // WebKit (Safari's engine) trims long cookie lifetimes to about a week when the page and the API are on different ports.
+  expect(daysLeft).toBeGreaterThan(browserName === 'webkit' ? 6 : 13)
   expect(daysLeft).toBeLessThanOrEqual(14.1)
   await firstVisit.close()
 

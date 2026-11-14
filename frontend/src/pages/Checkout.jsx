@@ -5,6 +5,7 @@ import { api } from '../api'
 import TextContent from '../components/TextContent'
 import { CardIcon, LockIcon } from '../components/Icons'
 import StripePayment, { stripePublishableKey } from '../components/StripePayment'
+import PayPalPayment from '../components/PayPalPayment'
 
 const emptyCard = { name: '', number: '', expiry: '', cvc: '' }
 
@@ -113,7 +114,9 @@ const Checkout = () => {
   const [card, setCard] = useState(emptyCard)
   const [placing, setPlacing] = useState(false)
   const [orderError, setOrderError] = useState('')
-  const [paymentConfig, setPaymentConfig] = useState(() => (stripePublishableKey() ? null : { gateway: 'fake' }))
+  const [needsCartReview, setNeedsCartReview] = useState(false)
+  const [paymentConfig, setPaymentConfig] = useState(null)
+  const [method, setMethod] = useState('card')
   const tokenGetterRef = useRef(null)
 
   // One key per visit to this page. A double-click or a retry after a
@@ -127,13 +130,13 @@ const Checkout = () => {
     if (isGuest) saveGuest(contact, newAddress)
   }, [isGuest, contact, newAddress])
 
-  // Asks the backend which gateway is on; Stripe's fields are used only when Stripe is on and a key is set.
+  // Asks the backend which card gateway is on and whether PayPal is offered; Stripe's fields need Stripe on and a key set.
   useEffect(() => {
-    if (!stripePublishableKey()) return
+    if (!isGuest && !isCustomer) return
     api('/api/payments/config')
       .then((data) => setPaymentConfig(data))
       .catch(() => setPaymentConfig({ gateway: 'fake' }))
-  }, [])
+  }, [isGuest, isCustomer])
 
   useEffect(() => {
     if (!isGuest || cart.items.length === 0) {
@@ -216,13 +219,15 @@ const Checkout = () => {
 
   // Validates, gets a payment token, creates a guest session if needed, then places the order; true when it worked.
   const placeOrder = async (walletToken) => {
-    const problem = (isGuest && guestProblem()) || (useStripeFields ? '' : cardError(card))
+    const problem = (isGuest && guestProblem()) || (!isGuest && !addressId && 'Choose a delivery address first.')
+      || (useStripeFields || typeof walletToken === 'string' ? '' : cardError(card))
     if (problem) {
       setOrderError(problem)
       return false
     }
 
     setOrderError('')
+    setNeedsCartReview(false)
     setPlacing(true)
     try {
       let token = walletToken
@@ -250,6 +255,8 @@ const Checkout = () => {
       return true
     } catch (err) {
       setOrderError(err.message)
+      setNeedsCartReview(err.code === 'CART_NEEDS_CHANGES')
+      if (err.code === 'CART_NEEDS_CHANGES') await Promise.all([reloadCart(), reloadProducts()])
       setPlacing(false)
       return false
     }
@@ -269,6 +276,8 @@ const Checkout = () => {
   const totals = isGuest ? estimate : preview
 
   const useStripeFields = paymentConfig?.gateway === 'stripe' && Boolean(stripePublishableKey())
+  const paypalOffered = Boolean(paymentConfig?.paypal?.enabled)
+  const payingWithPayPal = paypalOffered && method === 'paypal'
   const billing = isGuest
     ? { name: `${contact.first_name} ${contact.last_name}`.trim(), email: contact.email.trim() }
     : { name: user?.full_name, email: user?.email }
@@ -368,64 +377,90 @@ const Checkout = () => {
         </div>
         {paymentConfig === null ? (
           <p className="text-sm text-gray-500">Loading payment options...</p>
-        ) : useStripeFields ? (
-          <>
-            <StripePayment
-              amountText={(totals && totals.grand_total) || cart.estimated_total}
-              currency={paymentConfig.currency || 'usd'}
-              billing={billing}
-              tokenGetterRef={tokenGetterRef}
-              walletProblem={walletProblem}
-              onWalletToken={placeOrder}
-              onWalletError={setOrderError}
-            />
-            {stripePublishableKey().startsWith('pk_test_') && (
-              <p className="text-xs text-gray-500 -mt-4">Test mode: no real card is charged. Use 4242 4242 4242 4242 to be approved or 4000 0000 0000 0002 to be declined, with any future expiry, any CVC and any ZIP code.</p>
-            )}
-          </>
         ) : (
           <>
-          <div className="flex flex-col gap-3 border border-gray-300 rounded px-4 py-4">
-            <div className="flex items-center justify-between text-sm text-gray-700">
-              <p className="font-medium flex items-center gap-2"><CardIcon className="w-5" /> Pay with card</p>
-              <p className="flex items-center gap-1 text-xs text-gray-500"><LockIcon className="w-3.5" /> Secure payment</p>
-            </div>
-            <input
-              className="border border-gray-300 rounded py-1.5 px-3.5 w-full"
-              placeholder="Name on card"
-              autoComplete="off"
-              value={card.name}
-              onChange={(e) => setCard({ ...card, name: e.target.value })}
-            />
-            <input
-              className="border border-gray-300 rounded py-1.5 px-3.5 w-full"
-              placeholder="Card number"
-              autoComplete="off"
-              inputMode="numeric"
-              value={card.number}
-              onChange={(e) => setCard({ ...card, number: formatNumber(e.target.value) })}
-            />
-            <div className="flex gap-3">
+            {paypalOffered && (
+              <div role="radiogroup" aria-label="Payment method" className="flex flex-col gap-3">
+                <label className={`flex items-center gap-3 border rounded px-4 py-3 cursor-pointer ${method === 'card' ? 'border-green-600 bg-green-50' : 'border-gray-300'}`}>
+                  <input type="radio" name="payment-method" value="card" className="accent-green-600" checked={method === 'card'} onChange={() => setMethod('card')} />
+                  <span className="flex flex-col">
+                    <span className="text-sm font-medium text-gray-800">Credit or debit card</span>
+                    <span className="text-xs text-gray-500">Visa, Mastercard, American Express</span>
+                  </span>
+                </label>
+                <label className={`flex items-center gap-3 border rounded px-4 py-3 cursor-pointer ${method === 'paypal' ? 'border-green-600 bg-green-50' : 'border-gray-300'}`}>
+                  <input type="radio" name="payment-method" value="paypal" className="accent-green-600" checked={method === 'paypal'} onChange={() => setMethod('paypal')} />
+                  <span className="flex flex-col">
+                    <span className="text-sm font-medium text-gray-800">PayPal</span>
+                    <span className="text-xs text-gray-500">Pay with your PayPal account</span>
+                  </span>
+                </label>
+              </div>
+            )}
+
+            {payingWithPayPal ? (
+              <PayPalPayment
+                clientId={paymentConfig.paypal.client_id}
+                currency={paymentConfig.paypal.currency}
+                walletProblem={walletProblem}
+                onToken={placeOrder}
+                onProblem={setOrderError}
+              />
+            ) : useStripeFields ? (
+              <StripePayment
+                amountText={(totals && totals.grand_total) || cart.estimated_total}
+                currency={paymentConfig.currency || 'usd'}
+                billing={billing}
+                tokenGetterRef={tokenGetterRef}
+                walletProblem={walletProblem}
+                onWalletToken={placeOrder}
+                onWalletError={setOrderError}
+              />
+            ) : (
+              <>
+            <div className="flex flex-col gap-3 border border-gray-300 rounded px-4 py-4">
+              <div className="flex items-center justify-between text-sm text-gray-700">
+                <p className="font-medium flex items-center gap-2"><CardIcon className="w-5" /> Pay with card</p>
+                <p className="flex items-center gap-1 text-xs text-gray-500"><LockIcon className="w-3.5" /> Secure payment</p>
+              </div>
               <input
                 className="border border-gray-300 rounded py-1.5 px-3.5 w-full"
-                placeholder="MM/YY"
+                placeholder="Name on card"
                 autoComplete="off"
-                inputMode="numeric"
-                value={card.expiry}
-                onChange={(e) => setCard({ ...card, expiry: formatExpiry(e.target.value) })}
+                value={card.name}
+                onChange={(e) => setCard({ ...card, name: e.target.value })}
               />
               <input
                 className="border border-gray-300 rounded py-1.5 px-3.5 w-full"
-                placeholder="CVC"
+                placeholder="Card number"
                 autoComplete="off"
                 inputMode="numeric"
-                maxLength={4}
-                value={card.cvc}
-                onChange={(e) => setCard({ ...card, cvc: digitsOnly(e.target.value) })}
+                value={card.number}
+                onChange={(e) => setCard({ ...card, number: formatNumber(e.target.value) })}
               />
+              <div className="flex gap-3">
+                <input
+                  className="border border-gray-300 rounded py-1.5 px-3.5 w-full"
+                  placeholder="MM/YY"
+                  autoComplete="off"
+                  inputMode="numeric"
+                  value={card.expiry}
+                  onChange={(e) => setCard({ ...card, expiry: formatExpiry(e.target.value) })}
+                />
+                <input
+                  className="border border-gray-300 rounded py-1.5 px-3.5 w-full"
+                  placeholder="CVC"
+                  autoComplete="off"
+                  inputMode="numeric"
+                  maxLength={4}
+                  value={card.cvc}
+                  onChange={(e) => setCard({ ...card, cvc: digitsOnly(e.target.value) })}
+                />
+              </div>
             </div>
-          </div>
-          <p className="text-xs text-gray-500 -mt-4">Test mode: no real card is charged. Use 4242 4242 4242 4242 to be approved or 4000 0000 0000 0002 to be declined, with any future expiry and any CVC.</p>
+            <p className="text-xs text-gray-500 -mt-4">Test mode: no real card is charged. Use 4242 4242 4242 4242 to be approved or 4000 0000 0000 0002 to be declined, with any future expiry and any CVC.</p>
+              </>
+            )}
           </>
         )}
       </div>
@@ -457,15 +492,24 @@ const Checkout = () => {
           </div>
         </div>
 
-        {orderError && <p className="mt-4 text-sm text-red-600" role="alert">{orderError}</p>}
+        {orderError && (
+          <p className="mt-4 text-sm text-red-600" role="alert">
+            {orderError}
+            {needsCartReview && <> <Link to="/cart" className="underline">Review your cart</Link></>}
+          </p>
+        )}
 
-        <button
-          onClick={() => placeOrder()}
-          disabled={!totals || placing}
-          className="w-full bg-green-600 text-white text-sm mt-8 px-8 py-3 active:bg-green-400 disabled:opacity-50"
-        >
-          {placing ? 'PLACING ORDER...' : 'PLACE ORDER'}
-        </button>
+        {payingWithPayPal ? (
+          <p className="mt-8 text-sm text-gray-600">Use the PayPal button on the left to pay. Your order is placed as soon as PayPal confirms the payment.</p>
+        ) : (
+          <button
+            onClick={() => placeOrder()}
+            disabled={!totals || placing}
+            className="w-full bg-green-600 text-white text-sm mt-8 px-8 py-3 active:bg-green-400 disabled:opacity-50"
+          >
+            {placing ? 'PLACING ORDER...' : 'PLACE ORDER'}
+          </button>
+        )}
       </div>
     </div>
   )

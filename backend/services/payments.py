@@ -319,12 +319,63 @@ def gateway():
     return _gateway
 
 
-# Says which gateway is switched on, and its currency, so the checkout page can show the right card form.
+# True when PayPal is set up: a client id and secret, and not switched off with PAYPAL_ENABLED=0.
+def paypal_enabled():
+    return (bool(os.environ.get("PAYPAL_CLIENT_ID") and os.environ.get("PAYPAL_CLIENT_SECRET"))
+            and os.environ.get("PAYPAL_ENABLED", "1") != "0")
+
+
+# Says which card gateway is on, and whether PayPal is offered, so the checkout page can show the right options.
+# The PayPal client id is public by design (PayPal's buttons need it in the browser); the secret never leaves the server.
 def public_config():
+    enabled = paypal_enabled()
     return {
         "gateway": os.environ.get("PAYMENT_GATEWAY", "fake"),
         "currency": os.environ.get("STRIPE_CURRENCY", "usd").lower(),
+        "paypal": {
+            "enabled": enabled,
+            "client_id": os.environ.get("PAYPAL_CLIENT_ID", "") if enabled else "",
+            "currency": os.environ.get("PAYPAL_CURRENCY", "USD").upper(),
+        },
     }
+
+
+class PaymentMethodUnavailable(Exception):
+    """The customer chose a payment method this server has not set up."""
+
+
+_paypal = None
+
+
+# The PayPal gateway when PayPal is set up, otherwise None.
+def paypal_gateway():
+    global _paypal
+    if _paypal is None and paypal_enabled():
+        from services.paypal import PayPalPaymentGateway
+        _paypal = PayPalPaymentGateway(
+            os.environ["PAYPAL_CLIENT_ID"],
+            os.environ["PAYPAL_CLIENT_SECRET"],
+            currency=os.environ.get("PAYPAL_CURRENCY", "USD"),
+            live=os.environ.get("PAYPAL_ENV", "sandbox") == "live",
+            allow_live=os.environ.get("PAYPAL_ALLOW_LIVE") == "1",
+        )
+    return _paypal
+
+
+# Swaps the PayPal gateway, for tests.
+def use_paypal_gateway(instance):
+    global _paypal
+    _paypal = instance
+
+
+# Picks the gateway for a payment token: "paypal:<order id>" goes to PayPal, everything else to the card gateway.
+def gateway_for(token):
+    if isinstance(token, str) and token.startswith("paypal:"):
+        gateway_in_use = paypal_gateway()
+        if gateway_in_use is None:
+            raise PaymentMethodUnavailable("PayPal is not available right now")
+        return gateway_in_use
+    return gateway()
 
 
 def use_gateway(instance):

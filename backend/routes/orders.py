@@ -101,10 +101,12 @@ def order_summary(row):
 def order_detail(row):
     address = db.query_one("SELECT * FROM addresses WHERE address_id = %s", (row["address_id"],))
     payment = db.query_one(
-        "SELECT card_last4, status, created_at FROM payments "
+        "SELECT card_last4, status, created_at, gateway_ref FROM payments "
         "WHERE order_id = %s AND status = 'approved' ORDER BY transaction_id DESC LIMIT 1",
         (row["order_id"],),
     )
+    if payment:
+        payment["method"] = "paypal" if str(payment.pop("gateway_ref") or "").startswith("paypal_") else "card"
     return {
         **order_summary(row),
         "address": address_json(address),
@@ -159,10 +161,31 @@ def _raise_if_problems(lines):
                        409, "CART_NEEDS_CHANGES", items=problems)
 
 
-# Public: which payment gateway is on (fake or stripe) and its currency.
+# Public: which card gateway is on (fake or stripe), its currency, and whether PayPal is offered.
 @orders_bp.get("/api/payments/config")
 def payment_config():
     return ok(**payments.public_config())
+
+
+# Creates a PayPal order for the cart's total; the server works the amount out, the page only gets the PayPal order id.
+@orders_bp.post("/api/payments/paypal/order")
+def create_paypal_order():
+    user = current_user()
+    if user is not None and user["role"] != "customer":
+        raise ApiError("Staff accounts cannot place orders", 403, "FORBIDDEN")
+    paypal = payments.paypal_gateway()
+    if paypal is None:
+        raise ApiError("PayPal is not available right now", 404, "PAYPAL_UNAVAILABLE")
+
+    lines = cart_routes.cart_lines(_cart_or_error(user["user_id"] if user else None))
+    _raise_if_problems(lines)
+    totals = rules.price_lines(lines)
+    try:
+        order_id = paypal.create_order(totals["grand_total"])
+    except payments.PaymentGatewayError:
+        raise ApiError("We could not reach PayPal. You have not been charged; please try again.",
+                       502, "PAYMENT_UNAVAILABLE") from None
+    return ok(201, id=order_id, amount=str(totals["grand_total"]))
 
 
 @orders_bp.post("/api/checkout/preview")
@@ -229,7 +252,10 @@ def place_order():
         raise ApiError("payment_token is required", code="MISSING_PAYMENT_TOKEN")
     quantities = _cart_or_error(user_id)
 
-    gateway = payments.gateway()
+    try:
+        gateway = payments.gateway_for(token)
+    except payments.PaymentMethodUnavailable as unavailable:
+        raise ApiError(str(unavailable), 400, "PAYMENT_METHOD_UNAVAILABLE") from None
     charge = None
     try:
         with db.transaction() as cur:

@@ -6,6 +6,8 @@ import DeliveryMap from '../components/DeliveryMap'
 import ArrivalEstimate from '../components/ArrivalEstimate'
 import TextContent from '../components/TextContent'
 import TrackOrder from './TrackOrder'
+import ProblemPanel from '../components/ProblemPanel'
+import { loginUrl } from '../redirects'
 
 const statusLabels = {
   placed: 'Order placed',
@@ -22,7 +24,7 @@ const useCustomer = () => {
   const { user } = useContext(StoreContext)
   const { pathname } = useLocation()
   if (user === undefined) return { ready: false }
-  if (!user) return { ready: false, redirect: `/login?next=${pathname}` }
+  if (!user) return { ready: false, redirect: loginUrl(pathname) }
   return { ready: true }
 }
 
@@ -43,17 +45,26 @@ const MyOrders = () => {
   const { ready, redirect } = useCustomer()
   const [orders, setOrders] = useState(null)
   const [error, setError] = useState('')
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     if (!ready) return
-    const load = () => api('/api/orders').then((data) => setOrders(data.orders)).catch((err) => setError(err.message))
+    const load = () => api('/api/orders').then((data) => { setOrders(data.orders); setError('') }).catch((err) => setError(err.message))
 
     load()
     const timer = setInterval(load, 15000)
     return () => clearInterval(timer)
-  }, [ready])
+  }, [ready, attempt])
 
   if (redirect) return <Navigate to={redirect} replace />
+  if (error && !orders) {
+    return (
+      <ProblemPanel title="We could not load your orders" message={error}>
+        <button type="button" onClick={() => { setError(''); setAttempt(attempt + 1) }} className="bg-green-600 text-white px-8 py-3 text-sm">TRY AGAIN</button>
+        <Link to="/products" className="border border-gray-800 px-8 py-3 text-sm">BROWSE PRODUCTS</Link>
+      </ProblemPanel>
+    )
+  }
 
   return (
     <div className="border-t-2 pt-14">
@@ -68,7 +79,7 @@ const MyOrders = () => {
       <div className="text-2xl mb-6">
         <TextContent text1={'MY'} text2={'ORDERS'} />
       </div>
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-red-600" role="alert">Your orders could not refresh: {error}</p>}
       {orders && orders.length === 0 && <p className="text-gray-600">You have not placed any orders yet.</p>}
       {orders && orders.map((order) => (
         <Link key={order.order_number} to={`/orders/${order.order_number}`} className="py-4 border-t border-b text-gray-700 flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:bg-gray-50">
@@ -93,6 +104,8 @@ export const OrderDetail = () => {
   const [order, setOrder] = useState(null)
   const [tracking, setTracking] = useState(null)
   const [error, setError] = useState('')
+  const [errorStatus, setErrorStatus] = useState(0)
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     if (!ready) return
@@ -108,8 +121,8 @@ export const OrderDetail = () => {
         const [detail, track] = await Promise.all([
           api(`/api/orders/${orderNumber}`), api(`/api/orders/${orderNumber}/tracking`),
         ])
-        if (current) { setOrder(detail.order); setTracking(track); setError('') }
-      } catch (err) { if (current) setError(err.message) }
+        if (current) { setOrder(detail.order); setTracking(track); setError(''); setErrorStatus(0) }
+      } catch (err) { if (current) { setError(err.message); setErrorStatus(err.status || 0) } }
       finally { loading = false }
     }
 
@@ -117,9 +130,18 @@ export const OrderDetail = () => {
     // Delivery updates arrive on their own, so check again every 15 seconds.
     const timer = setInterval(load, 15000)
     return () => { current = false; clearInterval(timer) }
-  }, [ready, orderNumber])
+  }, [ready, orderNumber, attempt])
 
   if (redirect) return <Navigate to={redirect} replace />
+  if ((!order || !tracking) && error) {
+    const missing = errorStatus === 404
+    return (
+      <ProblemPanel title={missing ? 'We could not find that order' : 'We could not load your order'} message={missing ? `There is no order ${orderNumber} on your account. Check the order number, or look through your orders.` : error}>
+        {!missing && <button type="button" onClick={() => { setError(''); setAttempt(attempt + 1) }} className="bg-green-600 text-white px-8 py-3 text-sm">TRY AGAIN</button>}
+        <Link to="/orders" className="border border-gray-800 px-8 py-3 text-sm">SEE ALL MY ORDERS</Link>
+      </ProblemPanel>
+    )
+  }
   if (!order || !tracking) return <p className="pt-14 text-center" role={error ? 'alert' : 'status'}>{error || 'Loading your order...'}</p>
 
   return <>{error && <p role="alert" className="mt-4 text-sm text-red-700">Tracking could not refresh. Showing the last successful update: {error}</p>}<OrderView order={order} tracking={tracking} justPlaced={state?.justPlaced} footer={<Link to="/orders" className="text-sm text-green-600 underline">See all my orders</Link>} /></>
@@ -173,7 +195,7 @@ export const OrderView = ({ order, tracking, justPlaced, footer }) => {
           <p className="text-gray-500 mt-2">
             Delivering to {order.address.street}, {order.address.city}, {order.address.state} {order.address.zip_code}
           </p>
-          {order.payment && <p className="text-gray-500">Paid with card ending {order.payment.card_last4}</p>}
+          {order.payment && <p className="text-gray-500">{order.payment.method === 'paypal' ? 'Paid with PayPal' : `Paid with card ending ${order.payment.card_last4}`}</p>}
         </div>
 
         <div className="w-full sm:w-[320px] flex flex-col gap-2 text-sm">

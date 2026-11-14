@@ -1,16 +1,22 @@
-import React, { useContext, useState } from 'react'
+import React, { useContext, useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { StoreContext } from '../context/StoreContext'
 import TextContent from '../components/TextContent'
+import { safeNext } from '../redirects'
 
 // Sign in or create an account on one page. After signing in, customers
 // go back where they came from (?next=/checkout), or to the shop.
 const Login = () => {
 
-  const { signIn, register } = useContext(StoreContext)
+  const { signIn, register, sessionExpired, dismissSessionExpired } = useContext(StoreContext)
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const next = searchParams.get('next') || '/'
+  const next = safeNext(searchParams.get('next'))
+  // Remembered on first draw, since the app-wide flag is cleared as soon as this page shows.
+  const [expired] = useState(() => searchParams.get('expired') === '1' || Boolean(sessionExpired))
+
+  // The notice lives in the address, so the app-wide banner is cleared once this page is showing.
+  useEffect(() => { dismissSessionExpired?.() }, [dismissSessionExpired])
 
   const [mode, setMode] = useState('signin')
   const [fullName, setFullName] = useState('')
@@ -49,6 +55,10 @@ const Login = () => {
       <div className="text-3xl">
         <TextContent text1={creating ? 'CREATE' : 'SIGN'} text2={creating ? 'ACCOUNT' : 'IN'} />
       </div>
+
+      {expired && (
+        <p className="w-full text-sm bg-amber-50 text-amber-800 px-3 py-2" role="status">Your session ended, so we signed you out. Sign in again to carry on where you were.</p>
+      )}
 
       {creating && (
         <input
