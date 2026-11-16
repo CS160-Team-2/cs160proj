@@ -64,62 +64,90 @@ class SimulatedVehicleLink:
         "est_arrival"}, ...] in visiting order. Returns True if the
         vehicle accepted the trip."""
         self.sent.append({"vehicle_id": vehicle["vehicle_id"], "trip_id": trip_id, "stops": stops})
-        if self.seconds_per_stop > 0:
-            self._drive(trip_id, stops)
+        # The recovery worker discovers committed trips. Starting timers here
+        # would race the dispatch transaction and lose their state on restart.
         return True
 
-    def _drive(self, trip_id, stops):
-        # Imported here: delivery imports this module, so a top-level import
-        # would be circular.
-        from routes.delivery import complete_stop
+    def tick(self, trip_id):
+        """Advance one persisted leg using the database's clock and row lock.
+
+        A restart never resets the leg clock. Multiple Flask processes may
+        poll, but the trip lock and idempotent completion serialize them.
+        Downtime counts toward the current leg; subsequent legs start when
+        their preceding stop is recorded delivered.
+        """
+        if self.seconds_per_stop <= 0:
+            return
         import db
-
-        interval = min(2, self.seconds_per_stop / 5)
-        frames = max(1, math.ceil(self.seconds_per_stop / interval))
-        state = {"segments": None, "stop": 0, "frame": 0}
-
-        def step():
-            try:
-                trip = db.query_one("SELECT status, route_json FROM delivery_trips WHERE trip_id = %s",
-                                    (trip_id,))
-                if not trip or trip["status"] != "out_for_delivery" or state["stop"] >= len(stops):
-                    return
-                if state["segments"] is None:
-                    route = trip["route_json"] or {}
-                    if isinstance(route, str):
-                        route = json.loads(route)
-                    state["segments"] = route_segments(route.get("path", []), stops)
-                state["frame"] += 1
-                latitude, longitude = position_on_path(
-                    state["segments"][state["stop"]], state["frame"] / frames)
-                arrived = state["frame"] >= frames
-                with db.transaction() as cur:
-                    cur.execute(
-                        "UPDATE delivery_trips SET last_latitude = %s, last_longitude = %s, "
-                        "last_report = %s, last_report_at = NOW() "
-                        "WHERE trip_id = %s AND status = 'out_for_delivery'",
-                        (round(latitude, 6), round(longitude, 6),
-                         "at_stop" if arrived else "en_route", trip_id),
-                    )
-                if arrived:
-                    status = complete_stop(trip_id, stops[state["stop"]]["order_id"])
-                    if status == "completed":
-                        with db.transaction() as cur:
-                            cur.execute("UPDATE delivery_trips SET last_report = 'completed', "
-                                        "last_report_at = NOW() WHERE trip_id = %s", (trip_id,))
-                        return
-                    state["stop"] += 1
-                    state["frame"] = 0
-            except Exception:                         # noqa: BLE001
-                logging.getLogger(__name__).exception("Vehicle simulation stopped for trip %s", trip_id)
+        from routes.delivery import _stops, _trip, complete_stop
+        with db.transaction() as cur:
+            trip = _trip(trip_id, cur, lock=True)
+            if trip['status'] != 'out_for_delivery':
                 return
-            timer = threading.Timer(interval, step)
-            timer.daemon = True
-            timer.start()
+            stops = _stops(trip_id, cur)
+            index = next((i for i, stop in enumerate(stops) if stop['delivered_at'] is None), None)
+            if index is None or not trip['started_at']:
+                return
+            route = trip['route_json'] or {}
+            if isinstance(route, str):
+                route = json.loads(route)
+            if not trip['route_planned_at'] or not route.get('path'):
+                return
+            cur.execute('SELECT NOW(6) AS clock')
+            now = cur.fetchone()['clock']
+            previous = [s['delivered_at'] for s in stops[:index] if s['delivered_at']]
+            leg_started = max(previous) if previous else trip['started_at']
+            fraction = min(1, max(0, (now - leg_started).total_seconds() / self.seconds_per_stop))
+            segments = route_segments(route['path'], stops)
+            latitude, longitude = position_on_path(segments[index], fraction)
+            report = 'en_route'
+            if fraction >= 1:
+                status = complete_stop(trip_id, stops[index]['order_id'], source='simulation', cursor=cur)
+                report = 'completed' if status == 'completed' else 'at_stop'
+            cur.execute('UPDATE delivery_trips SET last_latitude=%s, last_longitude=%s, '
+                        'last_report=%s, last_report_at=NOW() WHERE trip_id=%s',
+                        (round(latitude, 6), round(longitude, 6), report, trip_id))
 
-        timer = threading.Timer(interval, step)
-        timer.daemon = True
-        timer.start()
+    def resume_pending(self):
+        import db
+        rows = db.query_all("SELECT trip_id FROM delivery_trips WHERE status='out_for_delivery'")
+        for row in rows:
+            try:
+                self.tick(row['trip_id'])
+            except Exception:
+                logging.getLogger(__name__).exception('Simulation tick failed for trip %s', row['trip_id'])
+
+
+_recovery_thread = None
+_recovery_lock = threading.Lock()
+
+
+def start_recovery():
+    """Start once per process; retry discovery if MySQL is temporarily down."""
+    global _recovery_thread
+    if os.environ.get('VEHICLE_LINK', 'simulated') != 'simulated':
+        return
+    try:
+        seconds = float(os.environ.get('VEHICLE_SIMULATION_SECONDS', '0'))
+    except ValueError:
+        logging.getLogger(__name__).warning('Invalid VEHICLE_SIMULATION_SECONDS; automatic simulation disabled')
+        return
+    if not math.isfinite(seconds) or seconds <= 0:
+        return
+    with _recovery_lock:
+        if _recovery_thread is not None and _recovery_thread.is_alive():
+            return _recovery_thread
+        def run():
+            worker = SimulatedVehicleLink(seconds)
+            while True:
+                try:
+                    worker.resume_pending()
+                except Exception:
+                    logging.getLogger(__name__).exception('Simulation discovery will retry')
+                threading.Event().wait(max(.05, min(1, seconds / 5)))
+        _recovery_thread = threading.Thread(target=run, name='ofs-simulation-recovery', daemon=True)
+        _recovery_thread.start()
+        return _recovery_thread
 
 
 _link = None

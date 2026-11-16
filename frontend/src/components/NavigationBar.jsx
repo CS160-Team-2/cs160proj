@@ -17,7 +17,7 @@ const NavigationBar = () => {
   }
 
   return (
-    <div className="flex items-center justify-between h-14 px-7 py-2 font-semibold bg-green-600 fixed w-full top-0 z-50">
+    <div className="print:hidden flex items-center justify-between h-14 px-7 py-2 font-semibold bg-green-600 fixed w-full top-0 z-50">
       <Link to="/" className="flex items-center" aria-label="OFS home">
         <img src={logo} alt="OFS" className="h-10 w-auto" />
       </Link>

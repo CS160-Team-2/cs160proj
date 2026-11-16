@@ -14,13 +14,13 @@ const DeliveryOverview = ({ trips, selectedId, onSelect, showStops = true }) => 
   const remaining = selected?.stops.filter((stop) => !stop.delivered_at).length || 0
 
   return (
-    <div id="delivery-overview" className="flex flex-col gap-4 scroll-mt-24">
+    <div id="delivery-overview" className="flex flex-col gap-4 scroll-mt-24 min-w-0">
       <div className="grid grid-cols-3 gap-3 text-center">
         {[['Out for delivery', active.length], ['Planned trips', planned.length], ['Completed trips', trips.length - active.length - planned.length]].map(([label, value]) => <div key={label} className="border border-gray-200 p-3"><p className="text-2xl font-semibold text-green-700">{value}</p><p className="text-xs sm:text-sm text-gray-600">{label}</p></div>)}
       </div>
       {selected ? <>
         <label className="flex flex-col sm:flex-row sm:items-center gap-2 text-sm">Delivery trip
-          <select className="border border-gray-300 bg-white p-2" value={selected.trip_id} onChange={(event) => choose(event.target.value)}>
+          <select aria-label="Delivery trip" className="border border-gray-300 bg-white p-2 min-w-0 w-full sm:w-auto sm:max-w-full" value={selected.trip_id} onChange={(event) => choose(event.target.value)}>
             {[...active, ...planned, ...trips.filter((trip) => trip.status === 'completed')].map((trip) => <option key={trip.trip_id} value={trip.trip_id}>Trip #{trip.trip_id} · {trip.vehicle.name} · {labels[trip.status]}</option>)}
           </select>
         </label>
