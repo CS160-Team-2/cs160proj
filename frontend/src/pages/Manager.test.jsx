@@ -459,7 +459,7 @@ describe('ManagerDelivery', () => {
     data.trips = [trip()]
     renderWithProviders(<ManagerDelivery />, { route: '/manager/delivery' })
 
-    expect(await screen.findByText(/OFS-0004/, { selector: 'span' })).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: 'OFS-0004', exact: true })).toBeInTheDocument()
     expect(screen.getByText(/Ben Cho/)).toBeInTheDocument()
     expect(screen.getByText(/Route planned with the offline demo provider/)).toBeInTheDocument()
 
@@ -472,7 +472,7 @@ describe('ManagerDelivery', () => {
     const user = userEvent.setup()
     data.trips = [trip()]
     renderWithProviders(<ManagerDelivery />, { route: '/manager/delivery' })
-    await screen.findByText(/OFS-0004/, { selector: 'span' })
+    await screen.findByRole('link', { name: 'OFS-0004', exact: true })
 
     await user.click(screen.getByRole('button', { name: 'Remove OFS-0004 from trip 1' }))
 
@@ -485,5 +485,50 @@ describe('ManagerDelivery', () => {
 
     expect(await screen.findByText(/No route planned yet/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'DISPATCH' })).toBeDisabled()
+  })
+
+  test('opens the linked trip, links back to its order and offers a stop list', async () => {
+    data.trips = [trip(), trip({ trip_id: 2 })]
+    renderWithProviders(<ManagerDelivery />, { route: '/manager/delivery?trip=2#trip-2' })
+    await waitFor(() => expect(screen.getByLabelText('Delivery trip')).toHaveValue('2'))
+    expect(document.getElementById('trip-2')).toBeInTheDocument()
+    expect(screen.getAllByRole('link', { name: 'OFS-0004', exact: true })[0]).toHaveAttribute('href', '/manager?q=OFS-0004&open=4')
+    expect(screen.getByRole('link', { name: 'Print or export trip #2 stop list' })).toHaveAttribute('href', '/manager/delivery/trips/2/manifest')
+  })
+
+  test('explains a missing linked trip', async () => {
+    renderWithProviders(<ManagerDelivery />, { route: '/manager/delivery?trip=999' })
+    expect(await screen.findByRole('alert')).toHaveTextContent('The linked trip could not be found')
+  })
+
+  test('a changed mapping provider explains and blocks dispatch until replanning', async () => {
+    data.trips = [trip({ route_provider_changed: true, active_provider: 'mapbox' })]
+    renderWithProviders(<ManagerDelivery />, { route: '/manager/delivery' })
+    expect(await screen.findByRole('alert')).toHaveTextContent('Map provider changed to Mapbox. Re-plan route before dispatching')
+    expect(screen.getByRole('button', { name: 'DISPATCH' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Re-plan route' })).toBeEnabled()
+  })
+})
+
+describe('Manager order deep links', () => {
+  beforeEach(() => { vi.resetAllMocks(); mockApi() })
+  test('an order opens its trip from any delivery stage', async () => {
+    data.orders = [order({ trip_id: 7, status: 'delivered' })]
+    renderWithProviders(<ManagerOrders />, { route: '/manager' })
+    expect(await screen.findByRole('link', { name: 'Open trip #7' })).toHaveAttribute('href', '/manager/delivery?trip=7#trip-7')
+  })
+  test('a trip link finds and automatically expands its order', async () => {
+    renderWithProviders(<ManagerOrders />, { route: '/manager?q=OFS-0001&open=1' })
+    expect(await screen.findByText(/3 × Apple/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /OFS-0001/ })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('searchbox')).toHaveValue('OFS-0001')
+  })
+  test('a deleted customer is readable with the preserved delivery address', async () => {
+    data.orders = [order({ customer_name: 'Deleted customer', customer_email: null })]
+    data.detail = { ...orderDetail, customer: { full_name: 'Deleted customer', email: null, phone: null } }
+    renderWithProviders(<ManagerOrders />, { route: '/manager?q=OFS-0001&open=1' })
+    expect(await screen.findByText('Deleted customer', { exact: true })).toBeInTheDocument()
+    expect(screen.getByText('1 Main St, San Jose, CA 95112')).toBeInTheDocument()
+    expect(screen.queryByText(/deleted\.ofs\.invalid/)).not.toBeInTheDocument()
   })
 })

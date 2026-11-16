@@ -36,6 +36,7 @@ from flask_cors import CORS
 from werkzeug.exceptions import HTTPException
 
 import db
+from services.vehicle import start_recovery
 from common import ApiError, error_response, ok
 from routes.addresses import addresses_bp
 from routes.admin_orders import admin_orders_bp
@@ -122,6 +123,7 @@ def create_app():
         app.logger.exception("Unhandled error")
         return error_response(ApiError("Something went wrong on our side", 500, "SERVER_ERROR"))
 
+    start_recovery()
     return app
 
 

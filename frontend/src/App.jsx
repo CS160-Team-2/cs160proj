@@ -18,6 +18,7 @@ import EmployeeDelivery from './pages/EmployeeDelivery'
 import ManagerStaff from './pages/ManagerStaff'
 import ManagerProblems from './pages/ManagerProblems'
 import ManagerVehicles from './pages/ManagerVehicles'
+import ManagerTripManifest from './pages/ManagerTripManifest'
 import NotFound from './pages/NotFound'
 import ErrorBoundary from './components/ErrorBoundary'
 import { isProtectedPath, loginUrl } from './redirects'
@@ -41,7 +42,7 @@ const App = () => {
     <>
     <NavigationBar />
 
-    <div className="pt-14 px-4 sm:px-[5vw] md:px-[7vw] lg:px-[9vw]">
+    <div className="pt-14 px-4 sm:px-[5vw] md:px-[7vw] lg:px-[9vw] print:p-0 min-w-0">
       {productsError && (
         <p className="mt-4 p-3 bg-red-50 text-red-700 text-sm" role="alert">{productsError}</p>
       )}
@@ -71,6 +72,7 @@ const App = () => {
         <Route path="/manager/staff" element={<ManagerStaff />} />
         <Route path="/manager/problems" element={<ManagerProblems />} />
         <Route path="/manager/vehicles" element={<ManagerVehicles />} />
+        <Route path="/manager/delivery/trips/:tripId/manifest" element={<ManagerTripManifest />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
       </ErrorBoundary>

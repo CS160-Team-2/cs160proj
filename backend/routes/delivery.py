@@ -29,6 +29,7 @@ cannot be found never reaches a trip.
 
 import json
 import os
+from contextlib import nullcontext
 from datetime import datetime, timedelta
 from decimal import Decimal
 
@@ -113,6 +114,9 @@ def trip_json(trip, stops=None):
             count, weight, vehicle["max_orders"], vehicle["max_weight_lb"]),
         "route_planned": trip["route_planned_at"] is not None,
         "route": route,
+        "active_provider": mapping.provider_name(),
+        "route_provider_changed": bool(trip['status'] == 'planned' and route and
+                                       route.get('provider') != mapping.provider_name()),
         "stops": [
             {
                 "order_id": s["order_id"],
@@ -426,8 +430,9 @@ def replan_route(trip_id):
     with db.transaction() as cur:
         _require_planned(_trip(trip_id, cur, lock=True))
         route_error = plan_route(cur, trip_id)
-    if route_error:
-        raise ApiError(f"The route could not be planned: {route_error}", 502, "ROUTE_FAILED")
+        if route_error:
+            # A failed explicit re-plan must not destroy the saved good route.
+            raise ApiError(f"The route could not be planned: {route_error}", 502, "ROUTE_FAILED")
     return ok(trip=trip_json(_trip(trip_id)))
 
 
@@ -450,6 +455,10 @@ def dispatch(trip_id):
             raise ApiError(problem, 409, "CAPACITY_EXCEEDED")
         if trip["route_planned_at"] is None:
             raise ApiError("Plan the route before dispatching", 409, "NO_ROUTE")
+        route = json.loads(trip['route_json']) if isinstance(trip['route_json'], str) else trip['route_json']
+        if route and route.get('provider') != mapping.provider_name():
+            raise ApiError('The map provider changed. Re-plan route before dispatching this trip.',
+                           409, 'ROUTE_PROVIDER_CHANGED')
         if vehicle["status"] != "available":
             raise ApiError(f"{vehicle['name']} is not available", 409, "VEHICLE_BUSY")
 
@@ -489,11 +498,11 @@ def dispatch(trip_id):
 # Completing a stop (called by the vehicle, the simulator, or a manager)
 # =====================================================================
 
-def complete_stop(trip_id, order_id, changed_by=None, source="vehicle", demo=False):
+def complete_stop(trip_id, order_id, changed_by=None, source="vehicle", demo=False, cursor=None):
     """Mark one order on a trip delivered. When it is the trip's last
     undelivered stop, the trip is completed and its vehicle freed.
     Reporting the same stop twice is harmless. Returns the trip's status."""
-    with db.transaction() as cur:
+    with (db.transaction() if cursor is None else nullcontext(cursor)) as cur:
         trip = _trip(trip_id, cur, lock=True)
         cur.execute("SELECT delivered_at FROM trip_orders WHERE trip_id = %s AND order_id = %s",
                     (trip_id, order_id))

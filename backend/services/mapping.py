@@ -326,6 +326,16 @@ def _decode_polyline(encoded):
 _provider = None
 
 
+def provider_name():
+    """Read the active adapter's identity without a network call or key lookup."""
+    if _provider is None:
+        return os.environ.get('MAP_PROVIDER', 'fake')
+    for cls, name in ((GoogleMapProvider, 'google'), (MapboxProvider, 'mapbox'), (FakeMapProvider, 'fake')):
+        if isinstance(_provider, cls):
+            return name
+    return getattr(_provider, 'name', 'custom')
+
+
 def provider():
     global _provider
     if _provider is None:

@@ -34,7 +34,13 @@ OFS is a website for a new local organic food retailer chain in downtown San Jos
 ### Employee and manager features
 
 - **Inventory console** (`/inventory`) for employees and managers: search and filter, adjust stock with a logged reason, low-stock flags, add, edit, unlist and relist products, and upload or remove a **product picture**.
-- Staff sign in on the same page as customers and are sent to the console.
+- **Manager order monitor** (`/manager`): search, date/status filters, pagination, order details, payment attempts, status history and tracking. Orders and trips link both ways.
+- **Delivery board** (`/manager/delivery`): queue, capacity checks, planned trips, route replanning, dispatch, provider-change guidance and automatic simulated-delivery recovery after a Flask restart.
+- **Trip stop lists** (`/manager/delivery/trips/<id>/manifest`): ordered addresses, printable snapshot and CSV export. These pages and their source API are manager-only.
+- **Staff accounts**, **Problems**, and **Vehicles** pages provide account management, recorded payment/current scheduling problems, and safe simulated-fleet management.
+- Managers land on `/manager`; employees land on `/inventory`. Employees also have a read-only delivery view at `/delivery`.
+- Paid-order snapshots remain preserved. The M8 scope decision is documented in [MANAGER_ORDER_SCOPE.md](MANAGER_ORDER_SCOPE.md); team acceptance is still required.
+- See [current LLD API tables](docs/LLD_API.md) and [manager completion/testing notes](MANAGER_FINISH.md).
 
 ### Backend services
 
@@ -42,7 +48,6 @@ The Flask API is complete for: catalog, cart, accounts, addresses, checkout and 
 
 ### Not built yet
 
-- Manager screens for the order monitor, delivery status board and trip planning (the backend routes exist; the frontend pages are in progress).
 - Apple Pay, Google Pay and PayPal are built but not yet tried against live test accounts or devices: the wallet buttons need an HTTPS domain and a supported device, and PayPal needs sandbox keys.
 - A real self-driving vehicle (a simulator is used).
 
@@ -126,7 +131,7 @@ Created by `schema.sql`, for local testing only.
 |---|---|---|---|
 | Customer | `customer@ofs.test` | `customer-pass-1` | Shop and My orders |
 | Employee | `employee@ofs.test` | `employee-pass-1` | Inventory console |
-| Manager | `manager@ofs.test` | `manager-pass-1` | Inventory console |
+| Manager | `manager@ofs.test` | `manager-pass-1` | Manager order monitor |
 
 You can also check out as a guest with no account. Staff accounts can only be created by a manager (`POST /api/admin/staff`); the public sign-up page always creates customers.
 
@@ -134,7 +139,7 @@ You can also check out as a guest with no account. Staff accounts can only be cr
 
 Each time, start two terminals: `source .venv/bin/activate && cd backend && python app.py` and `cd frontend && npm run dev`. MySQL runs as a background service.
 
-After pulling changes, run `npm install` in `frontend/` and `pip install -r requirements.txt` if the dependency files changed. If `schema.sql` changed, run it again (step 2).
+After pulling changes, run `npm ci` in `frontend/` and `pip install -r requirements.txt` if dependency files changed. Apply documented incremental database updates when required. Do not rerun `schema.sql` on data you need to keep: it drops the application database. The manager completion upgrade requires no schema migration.
 
 ## Configuration
 
