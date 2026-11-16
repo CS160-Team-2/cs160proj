@@ -29,7 +29,7 @@ export const mapBounds = (coordinates) => {
     [Math.max(...longitudes), Math.max(...latitudes)]]
 }
 
-const Sketch = ({ points, label }) => {
+const Sketch = ({ points, label, preview = false }) => {
   const id = useId()
   const [[west, south], [east, north]] = mapBounds(points.map(lngLat)) || [[0, 0], [1, 1]]
   const project = ({ longitude, latitude }) => ({
@@ -42,19 +42,19 @@ const Sketch = ({ points, label }) => {
       <svg viewBox="0 0 640 320" className="w-full border border-gray-200 bg-white" role="img" aria-label={label}>
         <defs><pattern id={id} width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#e5e7eb" /></pattern></defs>
         <rect width="640" height="320" fill={`url(#${id})`} />
-        <polyline points={stops.map((point) => { const { x, y } = project(point); return `${x},${y}` }).join(' ')} fill="none" stroke="#16a34a" strokeWidth="4" strokeDasharray="8 7" />
+        {!preview && <polyline points={stops.map((point) => { const { x, y } = project(point); return `${x},${y}` }).join(' ')} fill="none" stroke="#16a34a" strokeWidth="4" strokeDasharray="8 7" />}
         {points.map((point) => {
           const { x, y } = project(point)
-          return <g key={point.id}><title>{point.label}</title><circle cx={x} cy={y} r="12" fill={point.color} stroke="white" strokeWidth="3" /><text x={x + 16} y={y - 13} fontSize="12">{point.number || point.label}</text></g>
+          return <g key={point.id}><title>{point.label}</title><circle cx={x} cy={y} r="12" fill={point.color} stroke="white" strokeWidth="3" /><text x={x > 320 ? x - 16 : x + 16} y={y - 13} textAnchor={x > 320 ? 'end' : 'start'} fontSize="12">{point.number || point.label}</text></g>
         })}
       </svg>
-      <p className="mt-2 text-sm text-amber-800">Street map unavailable. This diagram shows approximate positions, not a road route.</p>
+      <p className="mt-2 text-sm text-amber-800">{preview ? 'Street map unavailable. This diagram shows approximate store and delivery-address positions.' : 'Street map unavailable. This diagram shows approximate positions, not a road route.'}</p>
     </div>
   )
 }
 
 // Polling updates one map in place, preserving the user's zoom and pan.
-const RouteMap = ({ points: rawPoints, path = [], directions, scopeKey, label = 'Interactive delivery street map', demo = false }) => {
+const RouteMap = ({ points: rawPoints, path = [], directions, scopeKey, label = 'Interactive delivery street map', demo = false, preview = false }) => {
   const token = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN?.trim()
   const points = rawPoints.map(mapPoint).filter(Boolean)
   // Server paths use [latitude, longitude]; GeoJSON uses [longitude, latitude].
@@ -69,9 +69,9 @@ const RouteMap = ({ points: rawPoints, path = [], directions, scopeKey, label = 
   const latest = useRef(null)
   const fitKey = useRef('')
   const lastLookup = useRef({ at: 0, destination: '' })
-  const hasDirections = Boolean(directions?.origin && directions?.destination)
+  const hasDirections = !preview && Boolean(directions?.origin && directions?.destination)
   const directionsKey = hasDirections ? JSON.stringify([directions.origin, directions.destination]) : ''
-  const coordinates = hasDirections ? drivingPath : savedPath
+  const coordinates = preview ? [] : hasDirections ? drivingPath : savedPath
   latest.current = { points, coordinates }
   const pointsKey = JSON.stringify(points)
   const hasPoints = points.length > 0
@@ -206,15 +206,15 @@ const RouteMap = ({ points: rawPoints, path = [], directions, scopeKey, label = 
     <div className="flex flex-col gap-3">
       {token && !failed ? <>
         <div className="flex flex-wrap items-center gap-4 text-sm">
-          <button type="button" onClick={fit} className="border border-gray-300 bg-white px-3 py-2">Fit route</button>
+          <button type="button" onClick={fit} className="border border-gray-300 bg-white px-3 py-2">{preview ? 'Fit map' : 'Fit route'}</button>
           {points.some((point) => point.kind === 'vehicle') && <label className="flex items-center gap-2"><input type="checkbox" checked={follow} onChange={(event) => setFollow(event.target.checked)} />Follow vehicle</label>}
         </div>
-        <div ref={container} className="w-full h-[420px] border border-gray-200" role="img" aria-label={label} />
+        <div ref={container} className="w-full h-[420px] border border-gray-200" role="img" aria-label={preview ? 'Delivery address preview map' : label} />
         {routeError && <p role="status" className="text-sm text-amber-800">{routeError}</p>}
-      </> : <Sketch points={points} label="Delivery route diagram" />}
+      </> : <Sketch points={points} label={preview ? 'Delivery address preview diagram' : 'Delivery route diagram'} preview={preview} />}
       {failed && <button type="button" className="self-start text-sm text-green-700 underline" onClick={() => { lastLookup.current = { at: 0, destination: '' }; setFailed(false) }}>Retry street map</button>}
       {demo && <p className="text-sm text-amber-800">Demo route: dashed lines show the offline plan, not directions along roads.</p>}
-      <p className="text-xs text-gray-600">Blue: store · Green: delivery stops · Gray: delivered stops · Orange: latest vehicle position</p>
+      <p className="text-xs text-gray-600">{preview ? 'Blue: store · Green: your delivery address' : 'Blue: store · Green: delivery stops · Gray: delivered stops · Orange: latest vehicle position'}</p>
     </div>
   )
 }

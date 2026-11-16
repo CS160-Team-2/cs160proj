@@ -47,6 +47,21 @@ registration cannot create staff. Stored guest email placeholders are not
 the contact emails shown to managers. Deleted-customer placeholders are
 suppressed from manager email displays; historical delivery addresses remain.
 
+### C14: delivery-address preview
+
+Order tracking and successful order-number/email lookup return a map with
+preview set to true before a usable trip route exists. The preview contains
+the configured store coordinates and the delivery coordinates saved with
+that paid order. It contains no other customer stops, route geometry, vehicle
+report, directions link or arrival estimate. No new geocoding or
+route-planning call is made.
+
+Once a planned route exists, preview becomes false and the existing
+route/vehicle tracking view applies, using the store saved with that route.
+Removing an order from a planned trip restores its preview. A delivered order
+without historical route data does not show a pending-assignment preview.
+The same ownership/session and order-number/email checks apply to previews.
+
 ## Employee/manager inventory and product routes
 
 | Method | Path | Access | Purpose |

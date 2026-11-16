@@ -403,7 +403,8 @@ def tracking_payload(order):
         (order["order_id"],),
     )
     # An arrival estimate only exists once the order is on a trip with a route.
-    estimate = stop["est_arrival"] if stop and stop["route_planned_at"] else None
+    estimate = (stop["est_arrival"]
+                if stop and stop["route_planned_at"] and stop["route_json"] else None)
 
     tracking_map = None
     if stop and stop["route_planned_at"] and stop["route_json"]:
@@ -420,6 +421,7 @@ def tracking_payload(order):
             vehicle = mapping.GeoPoint(stop["last_latitude"], stop["last_longitude"])
         route_origin = vehicle or store
         tracking_map = {
+            "preview": False,
             "vehicle_mode": os.environ.get("VEHICLE_LINK", "simulated"),
             "provider": route.get("provider", "unknown"),
             "trip_status": stop["trip_status"],
@@ -442,6 +444,31 @@ def tracking_payload(order):
             "last_updated": stop["last_report_at"],
             "directions_url": mapping.directions_url(route_origin, destination),
         }
+    elif order["status"] != "delivered":
+        # The paid order keeps its own address snapshot. Preview those saved
+        # coordinates without geocoding, planning a route, or exposing stops
+        # belonging to other customers. The same view serves guest lookup.
+        address = db.query_one(
+            "SELECT latitude, longitude FROM addresses WHERE address_id = %s",
+            (order["address_id"],),
+        )
+        if address:
+            store = mapping.store_location()
+            tracking_map = {
+                "preview": True,
+                "provider": None,
+                "trip_status": stop["trip_status"] if stop else None,
+                "store": {"latitude": store.latitude, "longitude": store.longitude},
+                "destination": {
+                    "latitude": address["latitude"],
+                    "longitude": address["longitude"],
+                },
+                "vehicle_mode": None,
+                "vehicle_position": None,
+                "last_report": None,
+                "last_updated": None,
+                "directions_url": None,
+            }
 
     return {
         "order_number": order["order_number"],
