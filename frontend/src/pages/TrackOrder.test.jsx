@@ -6,7 +6,7 @@
 // user.click() - click a button
 
 import React from 'react'
-import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
@@ -76,6 +76,7 @@ async function lookUp(user, orderNumber, email)
 
 describe('Track order (guest)', () =>
 {
+  afterEach(() => vi.unstubAllEnvs())
   // clear mocks before each test
   beforeEach(() =>
   {
@@ -104,6 +105,29 @@ describe('Track order (guest)', () =>
     expect(await screen.findByText('2 x Apple')).toBeInTheDocument()
     expect(screen.getByText('Order placed')).toBeInTheDocument()
     expect(screen.getByText('$5.50')).toBeInTheDocument()
+  })
+
+  test('C14 shows the delivery-address preview after a successful guest lookup', async () =>
+  {
+    vi.stubEnv('VITE_MAPBOX_ACCESS_TOKEN', '')
+    api.mockResolvedValue({
+      order: orderDetails,
+      tracking: {
+        ...orderTracking,
+        map: {
+          preview: true, trip_status: null,
+          store: { latitude: '37.3352', longitude: '-121.8811' },
+          destination: { latitude: '37.34', longitude: '-121.89' },
+          vehicle_position: null, directions_url: null,
+        },
+      },
+    })
+    const user = userEvent.setup()
+    openPage()
+    await lookUp(user, 'OFS-TEST001', 'anna@example.com')
+    expect(await screen.findByRole('region', { name: 'Delivery map preview' })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Delivery address preview diagram' })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Open route in Google Maps' })).not.toBeInTheDocument()
   })
 
   // --------- check data sent to api test -------

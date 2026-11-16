@@ -3,7 +3,7 @@
 // getByText() - check if the text is there
 
 import React from 'react'
-import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { OrderDetail, OrderHistory } from './Orders'
@@ -66,7 +66,7 @@ const orderTracking =
 }
 
 // return fake data
-function fakeBackend(orders)
+function fakeBackend(orders, tracking = orderTracking)
 {
   api.mockImplementation(async (path) =>
   {
@@ -82,7 +82,7 @@ function fakeBackend(orders)
 
     if (path === '/api/orders/OFS-TEST001/tracking')
     {
-      return orderTracking
+      return tracking
     }
   })
 }
@@ -105,6 +105,7 @@ function openPage(url, user)
 
 describe('Customer orders', () =>
 {
+  afterEach(() => vi.unstubAllEnvs())
   // clear mocks before test
   beforeEach(() =>
   {
@@ -175,6 +176,25 @@ describe('Customer orders', () =>
 
     expect(await screen.findByText('Order placed')).toBeInTheDocument()
     expect(screen.getByText('Delivered')).toBeInTheDocument()
+  })
+
+  test('C14 shows the saved delivery-address preview before an order has a trip', async () =>
+  {
+    vi.stubEnv('VITE_MAPBOX_ACCESS_TOKEN', '')
+    fakeBackend([orderInList], {
+      ...orderTracking,
+      map: {
+        preview: true, trip_status: null,
+        store: { latitude: '37.3352', longitude: '-121.8811' },
+        destination: { latitude: '37.34', longitude: '-121.89' },
+        vehicle_position: null, directions_url: null,
+      },
+    })
+    openPage('/orders/OFS-TEST001', customer)
+    expect(await screen.findByRole('region', { name: 'Delivery map preview' })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Delivery address preview diagram' })).toBeInTheDocument()
+    expect(screen.getByText(/Your route will appear once your order is assigned/)).toBeInTheDocument()
+    expect(screen.getByText(/Delivering to 1 Washington Sq/)).toBeInTheDocument()
   })
 
   // --------- user not signed in test -------
