@@ -1,6 +1,6 @@
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import DeliveryMap from './DeliveryMap'
 import TripMap from './TripMap'
 import { mapBounds, mapPoint } from './RouteMap'
@@ -38,6 +38,10 @@ const planned = {
   destination: { latitude: '37.34', longitude: '-121.89' },
   vehicle_position: null, last_report: null, last_updated: null,
   directions_url: 'https://www.google.com/maps/dir/?api=1',
+}
+const preview = {
+  ...planned, preview: true, provider: null, trip_status: null,
+  directions_url: null, vehicle_mode: null,
 }
 beforeEach(() => {
   vi.clearAllMocks()
@@ -110,7 +114,7 @@ describe('delivery maps', () => {
 
   test('explains missing coordinates and rejects null, blank, and out-of-range points', () => {
     render(<DeliveryMap trackingMap={{ ...planned, destination: null }} />)
-    expect(screen.getByText(/map will appear when the store assigns a route/)).toBeInTheDocument()
+    expect(screen.getByText(/delivery map is not available yet/)).toBeInTheDocument()
     expect(mapPoint({ latitude: null, longitude: 0 })).toBeNull()
     expect(mapPoint({ latitude: '', longitude: 0 })).toBeNull()
     expect(mapPoint({ latitude: 100, longitude: 0 })).toBeNull()
@@ -143,5 +147,79 @@ describe('delivery maps', () => {
   test('loads the first road route under React StrictMode without a one-minute delay', async () => {
     render(<React.StrictMode><DeliveryMap trackingMap={planned} /></React.StrictMode>)
     await waitFor(() => expect(mapbox.state.maps.at(-1).source.setData).toHaveBeenCalledWith(expect.objectContaining({ features: [expect.anything()] })))
+  })
+
+  test('C14 shows only the store and destination before assignment without requesting directions', async () => {
+    render(<DeliveryMap trackingMap={preview} status="placed" />)
+    expect(screen.getByRole('region', { name: 'Delivery map preview' })).toBeInTheDocument()
+    expect(screen.getByText(/Your route will appear once your order is assigned/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Fit map', exact: true })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Delivery address preview map' })).toBeInTheDocument()
+    await waitFor(() => expect(mapbox.state.maps[0].addSource).toHaveBeenCalledWith(
+      'delivery-route', expect.objectContaining({ data: { type: 'FeatureCollection', features: [] } }),
+    ))
+    expect(mapbox.state.markers).toHaveLength(2)
+    expect(mapbox.state.markers[0].setLngLat).toHaveBeenLastCalledWith([-121.8811, 37.3352])
+    expect(mapbox.state.markers[1].setLngLat).toHaveBeenLastCalledWith([-121.89, 37.34])
+    expect(fetch).not.toHaveBeenCalled()
+    expect(screen.queryByRole('link', { name: 'Open route in Google Maps' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/Waiting for the vehicle/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Simulated vehicle/)).not.toBeInTheDocument()
+  })
+
+  test('C14 works without a public map token and does not draw a made-up route', () => {
+    vi.stubEnv('VITE_MAPBOX_ACCESS_TOKEN', '')
+    render(<DeliveryMap trackingMap={preview} status="awaiting_delivery" />)
+    const diagram = screen.getByRole('img', { name: 'Delivery address preview diagram' })
+    expect(diagram.querySelectorAll('circle')).toHaveLength(2)
+    expect(diagram.querySelector('polyline')).toBeNull()
+    expect([...diagram.querySelectorAll('text')].map((label) => label.textContent)).toEqual([
+      'Store', 'Your delivery address',
+    ])
+    expect(screen.getByText(/approximate store and delivery-address positions/)).toBeInTheDocument()
+    expect(mapbox.Map).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  test('C14 begins normal routing immediately when a planned trip replaces the preview', async () => {
+    const { rerender } = render(<DeliveryMap trackingMap={preview} status="placed" />)
+    expect(fetch).not.toHaveBeenCalled()
+    rerender(<DeliveryMap trackingMap={{ ...planned, preview: false }} status="assigned_to_trip" />)
+    await waitFor(() => expect(mapbox.state.maps[0].source.setData).toHaveBeenCalledWith(
+      expect.objectContaining({ features: [expect.anything()] }),
+    ))
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('region', { name: 'Delivery map', exact: true })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Open route in Google Maps' })).toBeInTheDocument()
+    expect(mapbox.Map).toHaveBeenCalledTimes(1)
+  })
+
+  test('C14 clears an old road route and vehicle when an order returns to the waiting queue', async () => {
+    const { rerender } = render(<DeliveryMap trackingMap={{
+      ...planned, preview: false, trip_status: 'out_for_delivery',
+      vehicle_position: planned.store, last_report: 'en_route',
+    }} status="out_for_delivery" />)
+    await waitFor(() => expect(mapbox.state.maps[0].source.setData).toHaveBeenCalledWith(
+      expect.objectContaining({ features: [expect.anything()] }),
+    ))
+    const vehicle = mapbox.state.markers.find((marker) => marker.options.color === '#f59e0b')
+    rerender(<DeliveryMap trackingMap={preview} status="awaiting_delivery" />)
+    expect(mapbox.state.maps[0].source.setData).toHaveBeenLastCalledWith({
+      type: 'FeatureCollection', features: [],
+    })
+    expect(vehicle.remove).toHaveBeenCalled()
+    expect(screen.queryByRole('checkbox', { name: 'Follow vehicle' })).not.toBeInTheDocument()
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(mapbox.Map).toHaveBeenCalledTimes(1)
+  })
+
+  test('C14 retains an address-only fallback when the street map cannot load', async () => {
+    render(<DeliveryMap trackingMap={preview} status="placed" />)
+    await act(async () => { mapbox.state.maps[0].events.error({ error: { status: 401 } }) })
+    const diagram = screen.getByRole('img', { name: 'Delivery address preview diagram' })
+    expect(diagram.querySelectorAll('circle')).toHaveLength(2)
+    expect(diagram.querySelector('polyline')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Retry street map' })).toBeInTheDocument()
+    expect(fetch).not.toHaveBeenCalled()
   })
 })

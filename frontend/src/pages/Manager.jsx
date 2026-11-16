@@ -121,9 +121,10 @@ const OrderPayments = ({ orderId, currency }) => {
   )
 }
 
-const OrderRow = ({ order, currency, onChanged }) => {
+const OrderRow = ({ order, currency, onChanged, initiallyOpen = false }) => {
 
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(initiallyOpen)
+  useEffect(() => { if (initiallyOpen) setOpen(true) }, [initiallyOpen])
   const [detail, setDetail] = useState(null)
   const [tracking, setTracking] = useState(null)
   const [message, setMessage] = useState('')
@@ -161,7 +162,7 @@ const OrderRow = ({ order, currency, onChanged }) => {
   return (
     <div className="py-4 border-t border-b text-gray-700">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-        <button onClick={() => setOpen(!open)} aria-expanded={open} className="text-left cursor-pointer">
+        <button onClick={() => setOpen(!open)} aria-expanded={open} className="text-left cursor-pointer min-w-0 break-words">
           <p className="font-medium">{order.order_number}</p>
           <p className="text-sm text-gray-500">
             {order.customer_name} · {formatTime(order.placed_at)} · {order.item_count} items · {order.total_weight_lb} lb · {currency}{order.grand_total}
@@ -170,7 +171,7 @@ const OrderRow = ({ order, currency, onChanged }) => {
         </button>
         <div className="sm:text-right">
           <p className="text-sm">{statusLabels[order.status]}</p>
-          {order.trip_id && <p className="text-sm text-gray-500">Trip #{order.trip_id}</p>}
+          {order.trip_id && <Link className="text-sm text-green-700 underline" to={`/manager/delivery?trip=${order.trip_id}#trip-${order.trip_id}`}>Open trip #{order.trip_id}</Link>}
         </div>
         <div>
           {action && (
@@ -188,7 +189,7 @@ const OrderRow = ({ order, currency, onChanged }) => {
       {message && <p className="mt-1 text-sm text-red-600">{message}</p>}
 
       {open && detail && (
-        <div className="mt-4 grid sm:grid-cols-2 gap-6 text-sm">
+        <div className="mt-4 grid sm:grid-cols-2 gap-6 text-sm [&>div]:min-w-0 break-words">
           <div className="flex flex-col gap-1">
             <p className="font-medium">Items</p>
             {detail.items.map((item) => (
@@ -200,7 +201,7 @@ const OrderRow = ({ order, currency, onChanged }) => {
           </div>
           <div className="flex flex-col gap-1">
             <p className="font-medium">Customer and address</p>
-            <p className="text-gray-600">{detail.customer.full_name}{detail.customer.is_guest ? ' (guest checkout)' : ''} · {detail.customer.email}{detail.customer.phone ? ` · ${detail.customer.phone}` : ''}</p>
+            <p className="text-gray-600">{detail.customer.full_name}{detail.customer.is_guest ? ' (guest checkout)' : ''}{detail.customer.email ? ` · ${detail.customer.email}` : ''}{detail.customer.phone ? ` · ${detail.customer.phone}` : ''}</p>
             <p className="text-gray-600">{detail.address.street}, {detail.address.city}, {detail.address.state} {detail.address.zip_code}</p>
             <p className="text-gray-500">{detail.payment ? (detail.payment.method === 'paypal' ? 'Paid with PayPal' : `Paid with a card ending ${detail.payment.card_last4}`) : 'No approved payment on record'}</p>
           </div>
@@ -237,6 +238,14 @@ export const ManagerOrders = () => {
   const [error, setError] = useState('')
   const [draft, setDraft] = useState({ q: searchParams.get('q') || '', from: '', to: '' })
   const [applied, setApplied] = useState(draft)
+  const previousQuery = useRef(searchParams.get('q') || '')
+  useEffect(() => {
+    const query = searchParams.get('q') || ''
+    if (query === previousQuery.current) return
+    previousQuery.current = query
+    const values = { q: query, from: '', to: '' }
+    setDraft(values); setApplied(values); setPage(1); setFilter('')
+  }, [searchParams])
   const [filterError, setFilterError] = useState('')
   const [loading, setLoading] = useState(false)
   const reload = useRef(null)
@@ -327,7 +336,7 @@ export const ManagerOrders = () => {
           </div>
           {shown.length === 0 && <p className="text-gray-600">No orders here.</p>}
           {shown.map((order) => (
-            <OrderRow key={order.order_id} order={order} currency={currency} onChanged={() => reload.current?.()} />
+            <OrderRow key={order.order_id} order={order} currency={currency} initiallyOpen={searchParams.get('open') === String(order.order_id)} onChanged={() => reload.current?.()} />
           ))}
           <ManagerPagination value={pagination} loading={loading} onPage={setPage} onSize={(value) => { setSize(value); setPage(1) }} />
         </>
@@ -369,7 +378,7 @@ const TripCard = ({ trip, queue, onChanged, onViewRoute }) => {
   const stops = [...trip.stops].sort((a, b) => (a.stop_sequence ?? 99) - (b.stop_sequence ?? 99))
 
   return (
-    <div className="py-4 border-t border-b text-gray-700 flex flex-col gap-4">
+    <div id={`trip-${trip.trip_id}`} tabIndex={-1} className="py-4 border-t border-b text-gray-700 flex flex-col gap-4 scroll-mt-20 min-w-0 break-words">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div>
           <p className="font-medium">Trip #{trip.trip_id} · {trip.vehicle.name}</p>
@@ -391,13 +400,15 @@ const TripCard = ({ trip, queue, onChanged, onViewRoute }) => {
       {trip.route_planned
         ? <p className="text-sm text-gray-600">Route planned with {providerName(trip.route?.provider)}, about {trip.route?.total_minutes} min in total.</p>
         : <p className="text-sm text-red-600">No route planned yet, so this trip cannot be dispatched.</p>}
+      {trip.route_provider_changed && <p role="alert" className="text-sm text-amber-800">Map provider changed to {providerName(trip.active_provider)}. Re-plan route before dispatching this trip.</p>}
+      <Link className="text-sm text-green-700 underline" to={`/manager/delivery/trips/${trip.trip_id}/manifest`}>Print or export trip #{trip.trip_id} stop list</Link>
       <a href="#delivery-overview" onClick={() => onViewRoute(trip.trip_id)} className="text-sm text-green-700 underline">View trip #{trip.trip_id} on the delivery map</a>
 
       <div className="flex flex-col gap-2">
         {stops.length === 0 && <p className="text-sm text-gray-500">This trip has no orders yet.</p>}
         {stops.map((stop) => (
           <div key={stop.order_id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-sm">
-            <p><span className="font-medium">{stop.stop_sequence || '-'}. {stop.order_number}</span> · {stop.customer_name} · {stop.address}</p>
+            <p className="min-w-0 break-words"><span className="font-medium">{stop.stop_sequence || '-'}. <Link className="text-green-700 underline" to={`/manager?q=${encodeURIComponent(stop.order_number)}&open=${stop.order_id}`}>{stop.order_number}</Link></span> · {stop.customer_name} · {stop.address}</p>
             <div className="flex items-center gap-4 text-gray-500">
               <div><p>{stop.weight_lb} lb</p>{!stop.delivered_at && <ArrivalEstimate value={stop.est_arrival} />}</div>
               {planned
@@ -420,7 +431,7 @@ const TripCard = ({ trip, queue, onChanged, onViewRoute }) => {
 
       {planned && (
         <div className="flex flex-wrap items-center gap-3">
-          <select aria-label={`Add an order to trip ${trip.trip_id}`} className="border border-gray-300 px-3 py-2 text-sm" value={addId} onChange={(e) => setAddId(e.target.value)}>
+          <select aria-label={`Add an order to trip ${trip.trip_id}`} className="border border-gray-300 px-3 py-2 text-sm min-w-0 max-w-full" value={addId} onChange={(e) => setAddId(e.target.value)}>
             <option value="">Add an order...</option>
             {queue.map((order) => (
               <option key={order.order_id} value={order.order_id}>{order.order_number} ({order.total_weight_lb} lb)</option>
@@ -430,7 +441,7 @@ const TripCard = ({ trip, queue, onChanged, onViewRoute }) => {
           <button onClick={() => act('POST', '/route')} className="text-sm text-green-600 underline">Re-plan route</button>
           <button
             onClick={() => act('POST', '/dispatch')}
-            disabled={trip.order_count === 0 || !trip.route_planned || !!trip.capacity_problem}
+            disabled={trip.order_count === 0 || !trip.route_planned || !!trip.capacity_problem || trip.route_provider_changed}
             className="bg-green-600 text-white text-sm px-6 py-2 active:bg-green-400 disabled:opacity-50 sm:ml-auto"
           >
             DISPATCH
@@ -478,13 +489,13 @@ const TripBuilder = ({ queue, vehicles, onChanged }) => {
   }
 
   return (
-    <div className="flex flex-col lg:flex-row justify-between gap-10">
-      <div className="w-full">
+    <div className="flex flex-col lg:flex-row justify-between gap-10 min-w-0">
+      <div className="w-full min-w-0">
         {queue.length === 0 && <p className="text-gray-600">No orders are waiting for delivery.</p>}
         {queue.map((order) => (
           <label key={order.order_id} className="py-4 border-t border-b text-gray-700 flex items-center gap-4 cursor-pointer">
             <input type="checkbox" className="accent-green-600" checked={selected.includes(order.order_id)} onChange={() => toggle(order.order_id)} aria-label={`Select ${order.order_number}`} />
-            <div>
+            <div className="min-w-0 break-words">
               <p className="font-medium">{order.order_number}</p>
               <p className="text-sm text-gray-500">{order.total_weight_lb} lb · waiting {waited(order.waited_minutes)}</p>
               {order.unscheduled_reason && <p className="text-sm text-red-600">{order.unscheduled_reason}</p>}
@@ -493,9 +504,9 @@ const TripBuilder = ({ queue, vehicles, onChanged }) => {
         ))}
       </div>
 
-      <div className="w-full lg:max-w-[450px] flex flex-col gap-4 self-start border border-gray-300 rounded px-4 py-4">
+      <div className="w-full min-w-0 lg:max-w-[450px] flex flex-col gap-4 self-start border border-gray-300 rounded px-4 py-4">
         <p className="font-medium text-sm text-gray-700">NEW TRIP</p>
-        <select aria-label="Vehicle" className="border border-gray-300 px-3 py-2 w-full text-sm" value={vehicle ? String(vehicle.vehicle_id) : ''} onChange={(e) => setVehicleId(e.target.value)}>
+        <select aria-label="Vehicle" className="border border-gray-300 px-3 py-2 w-full min-w-0 max-w-full text-sm" value={vehicle ? String(vehicle.vehicle_id) : ''} onChange={(e) => setVehicleId(e.target.value)}>
           {vehicles.map((v) => (
             <option key={v.vehicle_id} value={v.vehicle_id} disabled={!isFree(v)}>
               {v.name}{isFree(v) ? '' : v.current_trip_id ? ` (on trip #${v.current_trip_id})` : ` (${v.status})`}
@@ -539,6 +550,8 @@ const TripBuilder = ({ queue, vehicles, onChanged }) => {
 export const ManagerDelivery = () => {
 
   const { ready, redirect } = useManager()
+  const [searchParams] = useSearchParams()
+  const requestedTrip = searchParams.get('trip')
   const [queue, setQueue] = useState([])
   const [exceptions, setExceptions] = useState([])
   const [vehicles, setVehicles] = useState([])
@@ -547,6 +560,12 @@ export const ManagerDelivery = () => {
   const [selectedTrip, setSelectedTrip] = useState('')
   const [updated, setUpdated] = useState(null)
   const [error, setError] = useState('')
+  const loaded = trips !== null
+  useEffect(() => {
+    if (!loaded || !requestedTrip) return
+    setTripFilter(''); setSelectedTrip(requestedTrip)
+    document.getElementById(`trip-${requestedTrip}`)?.scrollIntoView?.({ block: 'start' })
+  }, [requestedTrip, loaded])
 
   const load = () => Promise.all([
     api('/api/admin/delivery/queue'),
@@ -579,6 +598,7 @@ export const ManagerDelivery = () => {
   return (
     <ManagerLayout title="DELIVERY">
       {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
+      {requestedTrip && loaded && !trips.some((trip) => String(trip.trip_id) === requestedTrip) && <p role="alert" className="text-amber-800 mb-4">The linked trip could not be found. Refresh deliveries or choose another trip.</p>}
 
       <Section text1="DELIVERY" text2="MAP">
         <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-gray-500"><p>{updated ? `Last refreshed ${updated.toLocaleTimeString()}. Updates every 10 seconds.` : 'Waiting for the first update.'}</p><button type="button" onClick={load} className="text-green-700 underline">Refresh deliveries</button></div>

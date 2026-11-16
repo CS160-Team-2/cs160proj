@@ -32,7 +32,9 @@ admin_orders_bp = Blueprint("admin_orders", __name__)
 
 # A guest's users.email is a private placeholder; the address they gave
 # at checkout is in contact_email, and that is the one staff should see.
-CONTACT_EMAIL = "CASE WHEN u.is_guest THEN u.contact_email ELSE u.email END"
+CONTACT_EMAIL = ("CASE WHEN NOT u.is_active AND u.full_name = 'Deleted customer' "
+                 "AND SUBSTRING_INDEX(u.email, '@', -1) = 'deleted.ofs.invalid' THEN NULL "
+                 "WHEN u.is_guest THEN u.contact_email ELSE u.email END")
 
 TRIP_DRIVEN = {
     "assigned_to_trip": "Add the order to a delivery trip instead",

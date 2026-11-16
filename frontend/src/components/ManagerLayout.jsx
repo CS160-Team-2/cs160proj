@@ -3,9 +3,9 @@ import { NavLink } from 'react-router-dom'
 import TextContent from './TextContent'
 
 const ManagerLayout = ({ title, children }) => (
-  <div className="border-t-2 pt-14">
-    <div className="text-2xl mb-6"><TextContent text1="MANAGER" text2={title} /></div>
-    <nav aria-label="Manager pages" className="flex flex-wrap gap-2 border-b border-gray-300 mb-8">
+  <div className="border-t-2 pt-14 min-w-0 break-words print:border-0 print:pt-0">
+    <div className="text-2xl mb-6 print:hidden"><TextContent text1="MANAGER" text2={title} /></div>
+    <nav aria-label="Manager pages" className="print:hidden flex flex-wrap gap-2 border-b border-gray-300 mb-8">
       {[
         ['/manager', 'Orders'], ['/manager/delivery', 'Delivery'],
         ['/manager/problems', 'Problems'], ['/manager/vehicles', 'Vehicles'],

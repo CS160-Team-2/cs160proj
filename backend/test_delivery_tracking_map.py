@@ -33,6 +33,7 @@ def test_planned_trip_exposes_only_this_customers_map_data(customer, manager):
     tracking_map = tracking["map"]
 
     assert tracking_map["provider"] == "fake"
+    assert tracking_map["preview"] is False
     assert tracking_map["trip_status"] == "planned"
     assert tracking_map["store"] == {
         "latitude": "37.335200", "longitude": "-121.881100"}
