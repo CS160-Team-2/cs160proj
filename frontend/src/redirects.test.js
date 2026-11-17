@@ -2,11 +2,11 @@ import { describe, expect, test } from 'vitest'
 import { isProtectedPath, loginUrl, safeNext } from './redirects'
 
 describe('redirect helpers', () => {
-  test.each(['/checkout', '/orders', '/orders/OFS-1', '/account', '/manager', '/manager/staff', '/inventory', '/delivery'])('%s needs a sign-in', (path) => {
+  test.each(['/checkout', '/orders/OFS-1', '/account', '/manager', '/manager/staff', '/inventory', '/delivery'])('%s needs a sign-in', (path) => {
     expect(isProtectedPath(path)).toBe(true)
   })
 
-  test.each(['/', '/products', '/item/1', '/cart', '/login', '/track-order', '/ordersx', '/accounting'])('%s is public', (path) => {
+  test.each(['/', '/products', '/item/1', '/cart', '/login', '/track-order', '/orders', '/ordersx', '/accounting'])('%s is public', (path) => {
     expect(isProtectedPath(path)).toBe(false)
   })
 

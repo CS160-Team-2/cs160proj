@@ -205,3 +205,21 @@ describe('Customer orders', () =>
     expect(await screen.findByText('Sign in page')).toBeInTheDocument()
   })
 })
+
+// A visitor who is not signed in sees an empty orders page, not the Track form and not a redirect.
+test('signed-out visitor on /orders stays there and sees an empty orders page', async () => {
+  const { StoreContext: Ctx } = await import('../context/StoreContext')
+  const { OrderHistory } = await import('./Orders')
+  render(
+    <Ctx.Provider value={{ user: null, currency: '$' }}>
+      <MemoryRouter initialEntries={['/orders']}>
+        <Routes><Route path="/orders" element={<OrderHistory />} /><Route path="/login" element={<p>login page</p>} /></Routes>
+      </MemoryRouter>
+    </Ctx.Provider>,
+  )
+
+  expect(screen.getByText('You have not placed any orders yet.')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: 'TRACK AN ORDER' })).toHaveAttribute('href', '/track-order')
+  expect(screen.getByRole('link', { name: 'SIGN IN' })).toHaveAttribute('href', '/login?next=%2Forders')
+  expect(screen.queryByPlaceholderText(/Order number/)).not.toBeInTheDocument()
+})

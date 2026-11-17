@@ -2,8 +2,9 @@
 const PROTECTED_PREFIXES = ['/checkout', '/orders', '/account', '/manager', '/inventory', '/delivery']
 
 // True when the path is one of the pages that need a sign-in.
+// The orders list itself (/orders) is open: signed out it simply shows an empty page, so only an order's own page (/orders/...) needs a sign-in.
 export const isProtectedPath = (pathname) =>
-  PROTECTED_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))
+  pathname !== '/orders' && PROTECTED_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))
 
 // Only lets a ?next= value through when it is a path on this site, so a sign-in link cannot send people elsewhere.
 export const safeNext = (value) => {

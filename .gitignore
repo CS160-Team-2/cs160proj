@@ -28,3 +28,10 @@ coverage/
 
 # Pictures staff upload for products
 backend/uploads/
+
+# Final presentation instructions from the course (not part of the project)
+CS160_Project_2, sec4.docx
+
+# Course project documents and the final presentation script (reference only)
+Team 2 - Project*.pdf
+workflow_script.pdf

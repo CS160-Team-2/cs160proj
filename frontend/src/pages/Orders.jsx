@@ -5,7 +5,6 @@ import { api } from '../api'
 import DeliveryMap from '../components/DeliveryMap'
 import ArrivalEstimate from '../components/ArrivalEstimate'
 import TextContent from '../components/TextContent'
-import TrackOrder from './TrackOrder'
 import ProblemPanel from '../components/ProblemPanel'
 import { loginUrl } from '../redirects'
 
@@ -33,9 +32,24 @@ export const OrderHistory = () => {
 
   const { user } = useContext(StoreContext)
 
-  if (user === null) return <TrackOrder />
+  if (user === null) return <NoOrders />
   return <MyOrders />
 }
+
+// The orders page for a visitor who is not signed in: empty, with ways to sign in or track one order.
+const NoOrders = () => (
+  <div className="border-t-2 pt-14">
+    <div className="text-2xl mb-6">
+      <TextContent text1={'MY'} text2={'ORDERS'} />
+    </div>
+    <p className="text-gray-600">You have not placed any orders yet.</p>
+    <p className="text-sm text-gray-500 mt-2">Sign in to see your order history, or use Track to look up a single order with its number and email.</p>
+    <div className="flex flex-wrap gap-3 mt-6">
+      <Link to="/login?next=%2Forders" className="bg-green-600 text-white px-8 py-3 text-sm">SIGN IN</Link>
+      <Link to="/track-order" className="border border-gray-800 px-8 py-3 text-sm">TRACK AN ORDER</Link>
+    </div>
+  </div>
+)
 
 // The signed-in customer's list of orders with live status.
 const MyOrders = () => {

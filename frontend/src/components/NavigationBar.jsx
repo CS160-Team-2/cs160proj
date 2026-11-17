@@ -2,14 +2,18 @@ import React, { useContext, useState } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { StoreContext } from '../context/StoreContext'
 import { ProfileIcon, ShoppingCartIcon } from './Icons'
-import logo from '../assets/ofs_logo_nav.png'
+import logo from '../assets/ofs_logo_cropped.png'
 
+// Top bar: Home, Products, Track and Orders links, the account menu and the cart.
 const NavigationBar = () => {
 
   const { getShoppingCartCount, user, signOut } = useContext(StoreContext)
   const [menuOpen, setMenuOpen] = useState(false)
   const navigate = useNavigate()
+  const isStaff = user?.role === 'employee' || user?.role === 'manager'
+  const isCustomer = user?.role === 'customer' && !user.is_guest
 
+  // Closes the menu, signs the user out and returns to the home page.
   const handleSignOut = async () => {
     setMenuOpen(false)
     await signOut()
@@ -31,14 +35,18 @@ const NavigationBar = () => {
           <p>PRODUCTS</p>
           <hr className="w-2/4 border-none h-[1.5px] bg-white hidden" />
         </NavLink>
-        <li className="flex flex-col items-center gap-1 cursor-default">
-          <p>ABOUT</p>
-          <hr className="w-2/4 border-none h-[1.5px] bg-white hidden" />
-        </li>
-        <li className="flex flex-col items-center gap-1 cursor-default">
-          <p>CONTACT</p>
-          <hr className="w-2/4 border-none h-[1.5px] bg-white hidden" />
-        </li>
+        {!isStaff && (
+          <>
+            <NavLink to="/track-order" className="flex flex-col items-center gap-1 cursor-pointer">
+              <p>TRACK</p>
+              <hr className="w-2/4 border-none h-[1.5px] bg-white hidden" />
+            </NavLink>
+            <NavLink to="/orders" end className="flex flex-col items-center gap-1 cursor-pointer">
+              <p>ORDERS</p>
+              <hr className="w-2/4 border-none h-[1.5px] bg-white hidden" />
+            </NavLink>
+          </>
+        )}
       </ul>
 
       <div className="flex items-center gap-5 text-white">
@@ -48,15 +56,18 @@ const NavigationBar = () => {
           </button>
           {menuOpen && (
             <div className="absolute right-0 mt-2 w-44 bg-white text-gray-700 text-sm shadow-md flex flex-col py-2">
-              {user ? (
+              {/* On a phone the top bar has no links, so the main pages live here too. */}
+              {!isStaff && (
+                <div className="flex flex-col sm:hidden border-b border-gray-200 mb-1 pb-1">
+                  <Link to="/products" onClick={() => setMenuOpen(false)} className="px-4 py-2 hover:bg-gray-100">Products</Link>
+                  <Link to="/track-order" onClick={() => setMenuOpen(false)} className="px-4 py-2 hover:bg-gray-100">Track</Link>
+                  <Link to="/orders" onClick={() => setMenuOpen(false)} className="px-4 py-2 hover:bg-gray-100">Orders</Link>
+                </div>
+              )}
+              {user && (isCustomer || isStaff) ? (
                 <>
-                  {user.role === 'customer' && !user.is_guest ? (
-                    <Link to="/account" onClick={() => setMenuOpen(false)} title="My account" className="px-4 py-2 font-medium text-gray-800 truncate hover:bg-gray-100">{user.full_name}</Link>
-                  ) : (
-                    <p className="px-4 py-1 text-xs text-gray-500 truncate">{user.full_name}</p>
-                  )}
-                  {user.role === 'customer' && (
-                    <Link to="/orders" onClick={() => setMenuOpen(false)} className="px-4 py-2 hover:bg-gray-100">My orders</Link>
+                  {isCustomer && (
+                    <Link to="/account" onClick={() => setMenuOpen(false)} className="px-4 py-2 hover:bg-gray-100">Profile</Link>
                   )}
                   {user.role === 'manager' && (
                     <>
@@ -64,20 +75,16 @@ const NavigationBar = () => {
                       <Link to="/manager/staff" onClick={() => setMenuOpen(false)} className="px-4 py-2 hover:bg-gray-100">Staff accounts</Link>
                     </>
                   )}
-                  {(user.role === 'employee' || user.role === 'manager') && (
-                    <Link to="/inventory" onClick={() => setMenuOpen(false)} className="px-4 py-2 hover:bg-gray-100">Inventory</Link>
-                  )}
-                  {(user.role === 'employee' || user.role === 'manager') && (
-                    <Link to="/delivery" onClick={() => setMenuOpen(false)} className="px-4 py-2 hover:bg-gray-100">Delivery tracking</Link>
+                  {isStaff && (
+                    <>
+                      <Link to="/inventory" onClick={() => setMenuOpen(false)} className="px-4 py-2 hover:bg-gray-100">Inventory</Link>
+                      <Link to="/delivery" onClick={() => setMenuOpen(false)} className="px-4 py-2 hover:bg-gray-100">Delivery tracking</Link>
+                    </>
                   )}
                   <button onClick={handleSignOut} className="px-4 py-2 text-left hover:bg-gray-100 cursor-pointer">Sign out</button>
                 </>
               ) : (
-                <>
-                  <p className="px-4 py-1 text-xs text-gray-500 truncate">Guest</p>
-                  <Link to="/track-order" onClick={() => setMenuOpen(false)} className="px-4 py-2 hover:bg-gray-100">Track orders</Link>
-                  <Link to="/login" onClick={() => setMenuOpen(false)} className="px-4 py-2 hover:bg-gray-100">Sign in</Link>
-                </>
+                <Link to="/login" onClick={() => setMenuOpen(false)} className="px-4 py-2 hover:bg-gray-100">Sign in</Link>
               )}
             </div>
           )}

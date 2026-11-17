@@ -86,6 +86,16 @@ describe('an ended session', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Your session ended')
   })
 
+  test('on the orders list the customer stays, sees the empty page and a banner offering to sign in again', async () => {
+    openApp('/orders')
+    await waitFor(() => expect(api).toHaveBeenCalledWith('/api/auth/me'))
+    await act(async () => { window.dispatchEvent(new Event(SESSION_EXPIRED)) })
+
+    expect(await screen.findByText('You have not placed any orders yet.')).toBeInTheDocument()
+    expect(screen.getByTestId('where')).toHaveTextContent('/orders')
+    expect(screen.getByText(/Your session ended, so you have been signed out/)).toBeInTheDocument()
+  })
+
   test('on a public page a banner offers to sign in again and can be dismissed', async () => {
     const user = userEvent.setup()
     openApp('/products')
