@@ -331,7 +331,7 @@ const InventoryRow = ({ item, currency, categories, onChanged }) => {
 // /inventory: staff see every product and can add, edit, restock and unlist
 const Inventory = () => {
 
-  const { user, currency } = useContext(StoreContext)
+  const { user, currency, reloadProducts } = useContext(StoreContext)
   const [items, setItems] = useState(null)
   const [search, setSearch] = useState('')
   const [availability, setAvailability] = useState('')
@@ -352,6 +352,12 @@ const Inventory = () => {
         setError('')
       })
       .catch((err) => setError(err.message))
+  }
+
+  // Reloads this list and the shop's own product list, so every staff change shows in the shop straight away.
+  const refreshAll = () => {
+    load()
+    if (reloadProducts) reloadProducts()
   }
 
   useEffect(() => {
@@ -383,7 +389,7 @@ const Inventory = () => {
     } else {
       setNotice(`Added ${values.name}.`)
     }
-    load()
+    refreshAll()
   }
 
   if (user === undefined) return null
@@ -437,13 +443,13 @@ const Inventory = () => {
         </div>
       )}
 
-      {user.role === 'manager' && <ManifestUpload onApplied={load} />}
+      {user.role === 'manager' && <ManifestUpload onApplied={refreshAll} />}
 
       {notice && <p className="mb-4 text-sm text-green-600">{notice}</p>}
       {error && <p className="text-sm text-red-600">{error}</p>}
       {items && items.length === 0 && <p className="text-gray-600">No products match.</p>}
       {items && items.map((item) => (
-        <InventoryRow key={item.product_id} item={item} currency={currency} categories={categories} onChanged={load} />
+        <InventoryRow key={item.product_id} item={item} currency={currency} categories={categories} onChanged={refreshAll} />
       ))}
     </div>
   )

@@ -55,6 +55,19 @@ const StoreContextProvider = (props) => {
             .catch(() => setUser(null))
     }, [loadProducts, loadCart])
 
+    // Keeps the shop's stock and prices fresh: reloads when the tab is shown again and every 30 seconds while it is visible, so changes made by staff (or other buyers) appear without a full page reload.
+    useEffect(() => {
+        const refresh = () => { if (document.visibilityState === 'visible') loadProducts() }
+        document.addEventListener('visibilitychange', refresh)
+        window.addEventListener('focus', refresh)
+        const timer = setInterval(refresh, 30000)
+        return () => {
+            document.removeEventListener('visibilitychange', refresh)
+            window.removeEventListener('focus', refresh)
+            clearInterval(timer)
+        }
+    }, [loadProducts])
+
     // When the backend reports the session ended, signs the customer out here too and raises the notice (guests just start over).
     useEffect(() => {
         const handleExpired = () => {

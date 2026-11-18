@@ -1,4 +1,4 @@
-"""Delivery management (API design table IX). Managers only.
+"""Delivery management (API design table IX). Managers only, except the read-only /api/staff routes.
 
     GET    /api/admin/delivery/queue                        orders waiting, oldest first
     GET    /api/admin/delivery/vehicles                     vehicles and their limits
@@ -10,6 +10,8 @@
     POST   /api/admin/delivery/trips/<trip_id>/route        re-plan the route
     POST   /api/admin/delivery/trips/<trip_id>/dispatch     send it to the vehicle
     GET    /api/admin/delivery/exceptions                   orders that cannot be scheduled, and why
+    GET    /api/staff/delivery/trips                        read-only trips and routes (employees too)
+    GET    /api/staff/delivery/board                        read-only waiting orders, problems, vehicles (employees too)
 
 Creating a trip, POST /api/admin/delivery/trips:
     {}                                   fill a trip from the queue, oldest order first
@@ -218,21 +220,18 @@ def queue():
     return ok(orders=db.query_all(QUEUE_SQL))
 
 
-@delivery_bp.get("/api/admin/delivery/vehicles")
-@require_role(*MANAGER)
-def vehicles():
-    rows = db.query_all(
+# Vehicles with their limits and the trip each one is on right now.
+def _vehicle_rows():
+    return db.query_all(
         "SELECT v.vehicle_id, v.name, v.max_orders, v.max_weight_lb, v.status, "
         "  (SELECT trip_id FROM delivery_trips d WHERE d.vehicle_id = v.vehicle_id "
         "   AND d.status IN ('planned', 'out_for_delivery') LIMIT 1) AS current_trip_id "
         "FROM vehicles v ORDER BY v.vehicle_id"
     )
-    return ok(vehicles=rows)
 
 
-@delivery_bp.get("/api/admin/delivery/exceptions")
-@require_role(*MANAGER)
-def exceptions():
+# Waiting orders that cannot be scheduled right now, each with the reason.
+def _scheduling_problems():
     waiting = db.query_all(QUEUE_SQL)
     with db.transaction() as cur:
         no_vehicle_free = not _free_vehicle_ids(cur)
@@ -243,7 +242,34 @@ def exceptions():
             reason = "No vehicle is free right now"
         if reason:
             problems.append({**order, "reason": reason})
-    return ok(orders=problems)
+    return problems
+
+
+@delivery_bp.get("/api/admin/delivery/vehicles")
+@require_role(*MANAGER)
+def vehicles():
+    return ok(vehicles=_vehicle_rows())
+
+
+@delivery_bp.get("/api/admin/delivery/exceptions")
+@require_role(*MANAGER)
+def exceptions():
+    return ok(orders=_scheduling_problems())
+
+
+@delivery_bp.get("/api/staff/delivery/board")
+@require_role(*STAFF)
+def staff_board():
+    """Read-only delivery status for employees: what is waiting, what cannot be
+    scheduled and why, and the vehicles. Order numbers, weights and times only:
+    no names, addresses or payment data, and no way to change anything."""
+    keep = ("order_number", "total_weight_lb", "placed_at", "waited_minutes")
+    return ok(
+        waiting=[{key: order[key] for key in keep} for order in db.query_all(QUEUE_SQL)],
+        problems=[{**{key: order[key] for key in keep}, "reason": order["reason"]}
+                  for order in _scheduling_problems()],
+        vehicles=_vehicle_rows(),
+    )
 
 
 # =====================================================================

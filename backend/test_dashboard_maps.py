@@ -82,3 +82,51 @@ def test_incomplete_or_invalid_vehicle_positions_are_rejected(customer, manager,
                            json={'status': 'en_route', **coordinates},
                            headers={'Authorization': f'Bearer {VEHICLE_TOKEN}'})
     assert response.status_code == 400
+
+
+# An employee sees what is waiting, the vehicles and the trips, read-only and with no private details.
+def test_employee_delivery_board_shows_waiting_orders_and_vehicles_without_private_data(customer, manager, employee):
+    order_id = ready_order(customer, manager, weight='4.00')
+    waiting_number = manager.get('/api/admin/delivery/queue').get_json()['orders'][0]['order_number']
+
+    response = employee.get('/api/staff/delivery/board')
+
+    assert response.status_code == 200
+    board = response.get_json()
+    assert [o['order_number'] for o in board['waiting']] == [waiting_number]
+    assert set(board['waiting'][0]) == {'order_number', 'total_weight_lb', 'placed_at', 'waited_minutes'}
+    assert {v['name'] for v in board['vehicles']} >= {'Robot 1', 'Robot 2'}
+    assert all({'max_orders', 'max_weight_lb', 'status', 'current_trip_id'} <= set(v) for v in board['vehicles'])
+    assert 'order_id' not in board['waiting'][0] and order_id
+
+
+# Once an order is on a trip it leaves the waiting list and its vehicle shows the trip.
+def test_employee_board_moves_an_order_from_waiting_to_its_vehicles_trip(customer, manager, employee):
+    order_id, trip = create_trip(customer, manager)
+
+    board = employee.get('/api/staff/delivery/board').get_json()
+
+    assert board['waiting'] == []
+    on_trip = [v for v in board['vehicles'] if v['current_trip_id'] == trip['trip_id']]
+    assert len(on_trip) == 1 and on_trip[0]['name'] == trip['vehicle']['name']
+
+
+# An order that cannot be scheduled is listed with its reason for employees.
+def test_employee_board_lists_unschedulable_orders_with_the_reason(customer, manager, employee):
+    ready_order(customer, manager, weight='4.00')
+    with database.transaction() as cur:
+        cur.execute("UPDATE orders SET unscheduled_reason = 'Address could not be found' WHERE status = 'awaiting_delivery'")
+
+    problems = employee.get('/api/staff/delivery/board').get_json()['problems']
+
+    assert [p['reason'] for p in problems] == ['Address could not be found']
+
+
+# Managers can read the board too; customers and guests cannot, and employees still cannot manage deliveries.
+def test_delivery_board_is_staff_only_and_read_only(customer, client, manager, employee):
+    assert manager.get('/api/staff/delivery/board').status_code == 200
+    assert customer.get('/api/staff/delivery/board').status_code == 403
+    assert client.get('/api/staff/delivery/board').status_code == 401
+    assert employee.post('/api/admin/delivery/trips', json={}).status_code == 403
+    assert employee.get('/api/admin/delivery/vehicles').status_code == 403
+    assert employee.post('/api/staff/delivery/board').status_code == 405

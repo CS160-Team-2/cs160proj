@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 
 // Walks the read-only parts of the final presentation script (Anna, Bob, Emily) in a real browser.
 // Nothing here places an order or applies a manifest; those steps are covered by E2E_ALLOW_ORDERS tests and backend tests.
-const sample = (name) => path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'docs', 'sample-data', name)
+const sample = (name) => path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'examples', 'delivery-manifests', name)
 
 // Signs in through the login form and waits for the sign-in to finish.
 async function signIn(page, email, password) {
@@ -60,6 +60,21 @@ test.describe('Bob, the employee', () => {
     await expect(page.getByText('Delivery manifest file')).toHaveCount(0)
   })
 
+  test('Delivery tracking shows the vehicles, the waiting orders and the trips, with no dispatch controls', async ({ page }) => {
+    await signIn(page, 'employee@ofs.test', 'employee-pass-1')
+    await page.getByRole('button', { name: 'Account menu' }).click()
+    await page.getByRole('link', { name: 'Delivery tracking', exact: true }).click()
+
+    await expect(page).toHaveURL(/\/delivery$/)
+    const vehicles = page.getByRole('list', { name: 'Delivery vehicles' })
+    await expect(vehicles).toContainText('Robot 1')
+    await expect(vehicles).toContainText('Robot 2')
+    await expect(vehicles).toContainText('Up to 10 orders and 200.00 lb')
+    await expect(page.getByText(/No orders are waiting|Waiting \d+ min/).first()).toBeVisible()
+    await expect(page.getByText('Planned trips')).toBeVisible()
+    await expect(page.getByRole('button', { name: /dispatch|create trip/i })).toHaveCount(0)
+  })
+
   test('cannot open the manager pages', async ({ page }) => {
     await signIn(page, 'employee@ofs.test', 'employee-pass-1')
     await page.goto('/manager')
@@ -89,7 +104,7 @@ test.describe('Emily, the manager', () => {
   test('a manifest with mistakes lists every problem by line and cannot be applied', async ({ page }) => {
     await page.goto('/inventory')
     await page.getByLabel('Delivery manifest file').setInputFiles(sample('delivery-with-problems.csv'))
-    await expect(page.getByText(/No product named "Organic Dragonfruit"/)).toBeVisible()
+    await expect(page.getByText(/No product named "Organic Strawbery 1 lb"/)).toBeVisible()
     await expect(page.getByText(/quantity must be a whole number/i).first()).toBeVisible()
     await expect(page.getByRole('button', { name: 'APPLY MANIFEST' })).toHaveCount(0)
   })
