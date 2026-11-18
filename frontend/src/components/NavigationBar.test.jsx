@@ -72,7 +72,7 @@ describe('account menu', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Account menu' }))
 
     expect(screen.getByRole('link', { name: 'Inventory' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Delivery tracking' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Delivery tracking' })).toHaveAttribute('href', '/delivery')
     expect(screen.queryByRole('link', { name: 'Manager dashboard' })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Profile' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument()
@@ -84,6 +84,7 @@ describe('account menu', () => {
 
     expect(screen.getByRole('link', { name: 'Manager dashboard' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Staff accounts' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Delivery tracking' })).toHaveAttribute('href', '/manager/delivery')
   })
 })
 

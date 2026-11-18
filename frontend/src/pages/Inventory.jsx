@@ -5,6 +5,7 @@ import { api } from '../api'
 import { imageFor } from '../productImage'
 import TextContent from '../components/TextContent'
 import ManifestUpload from '../components/ManifestUpload'
+import ManagerLayout from '../components/ManagerLayout'
 
 // Uploads a product picture as form data.
 const uploadImage = (productId, file) => {
@@ -14,6 +15,18 @@ const uploadImage = (productId, file) => {
 }
 
 const isStaff = (user) => user && (user.role === 'employee' || user.role === 'manager')
+
+const InventoryLayout = ({ isManager, children }) => isManager ? (
+  <ManagerLayout title="INVENTORY">{children}</ManagerLayout>
+) : (
+  <div className="border-t-2 pt-14">
+    <div className="text-2xl mb-6">
+      <TextContent text1="INVENTORY" text2="CONSOLE" />
+    </div>
+    <Link to="/delivery" className="inline-block mb-6 text-sm text-green-700 underline">View delivery tracking</Link>
+    {children}
+  </div>
+)
 
 // One form for both adding a product and editing one. Weight is always
 // required, because delivery cost and vehicle capacity depend on it.
@@ -390,13 +403,7 @@ const Inventory = () => {
   if (!isStaff(user)) return <Navigate to="/login" replace />
 
   return (
-    <div className="border-t-2 pt-14">
-      <div className="text-2xl mb-6">
-        <TextContent text1={'INVENTORY'} text2={'CONSOLE'} />
-      </div>
-
-      <Link to="/delivery" className="inline-block mb-6 text-sm text-green-700 underline">View delivery tracking</Link>
-
+    <InventoryLayout isManager={user.role === 'manager'}>
       <div className="flex flex-wrap gap-3 mb-6">
         <input
           className="border px-3 py-2"
@@ -445,7 +452,7 @@ const Inventory = () => {
       {items && items.map((item) => (
         <InventoryRow key={item.product_id} item={item} currency={currency} categories={categories} onChanged={load} />
       ))}
-    </div>
+    </InventoryLayout>
   )
 }
 
