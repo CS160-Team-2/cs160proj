@@ -11,7 +11,7 @@ const ManagerLayout = ({ title, children }) => (
         ['/manager/problems', 'Problems'], ['/manager/vehicles', 'Vehicles'],
         ['/manager/staff', 'Staff'], ['/inventory', 'Inventory'],
       ].map(([to, label]) => (
-        <NavLink key={to} to={to} end className={({ isActive }) => `px-4 py-2 text-sm ${isActive ? 'border-b-2 border-green-600 font-medium text-green-700' : 'text-gray-600'}`}>{label}</NavLink>
+        <NavLink key={to} to={to} end={to !== '/manager/delivery'} className={({ isActive }) => `px-4 py-2 text-sm ${isActive ? 'border-b-2 border-green-600 font-medium text-green-700' : 'text-gray-600'}`}>{label}</NavLink>
       ))}
     </nav>
     {children}
