@@ -2,13 +2,16 @@
 
 A manifest is a CSV file a manager uploads when a delivery arrives:
 
-    product_name,quantity
-    "Organic Apples, 3 lb bag",24
-    Organic Broccoli Crown,30
+    manifest_id,product_name,quantity
+    DM-1001,"Organic Apples, 3 lb bag",24
+    DM-1001,Organic Broccoli Crown,30
 
-read_manifest() turns the file's bytes and the catalog into the stock to
-add per product, plus every problem it found, each tied to its line in
-the file. It never guesses: a name must match one product exactly,
+The manifest ID names the delivery. Every line of a file carries the same
+one, and the routes refuse an ID that was already applied.
+
+read_manifest() turns the file's bytes and the catalog into the manifest
+ID and the stock to add per product, plus every problem it found, each
+tied to its line in the file. It never guesses: a name must match one product exactly,
 ignoring capitals and extra spaces, or the line is a problem. With no
 I/O here, the same file and catalog always give the same answer, and
 test_manifest.py can check the rules without a database.
@@ -18,7 +21,6 @@ apply the result only when there are no problems at all.
 """
 
 import csv
-import hashlib
 import io
 import re
 from dataclasses import dataclass
@@ -26,24 +28,21 @@ from dataclasses import dataclass
 MAX_BYTES = 1_000_000          # about 1 MB
 MAX_LINES = 1000               # product lines, not counting the header
 MAX_QUANTITY = 100_000         # per product, after repeated lines are added up
-REQUIRED_COLUMNS = ("product_name", "quantity")
+REQUIRED_COLUMNS = ("manifest_id", "product_name", "quantity")
 
 WHOLE_NUMBER = re.compile(r"\d+")
+MANIFEST_ID = re.compile(r"[A-Z0-9][A-Z0-9._-]{0,63}")   # checked after capitalizing
 
 
 @dataclass
 class Manifest:
     lines: list        # one per product: product_id, name, quantity, line_numbers, is_listed
     problems: list     # {"line": n or None, "message": "..."}, in file order
+    manifest_id: str = None    # in capitals, so dm-1001 and DM-1001 are the same delivery
 
     @property
     def ok(self):
         return not self.problems
-
-
-def fingerprint(raw):
-    """SHA-256 of the file's bytes: the same contents, the same fingerprint."""
-    return hashlib.sha256(raw).hexdigest()
 
 
 def normalize(name):
@@ -82,8 +81,8 @@ def read_manifest(raw, catalog):
     columns = [cell.strip().lower() for cell in header]
     if not all(name in columns for name in REQUIRED_COLUMNS):
         return Manifest([], [_problem(header_line, "The first line must name the columns "
-                                                   "product_name and quantity.")])
-    name_at, quantity_at = (columns.index(name) for name in REQUIRED_COLUMNS)
+                                                   "manifest_id, product_name and quantity.")])
+    id_at, name_at, quantity_at = (columns.index(name) for name in REQUIRED_COLUMNS)
 
     body = [(line, row) for line, row in rows[1:] if any(cell.strip() for cell in row)]
     if not body:
@@ -96,8 +95,22 @@ def read_manifest(raw, catalog):
     for product in catalog:
         by_name.setdefault(normalize(product["name"]), []).append(product)
 
+    manifest_id = None
     totals, problems = {}, []        # totals keeps the order products first appear in
     for line, row in body:
+        line_id = row[id_at].strip().upper() if id_at < len(row) else ""
+        if not line_id:
+            problems.append(_problem(line, "The manifest ID is missing."))
+        elif not MANIFEST_ID.fullmatch(line_id):
+            problems.append(_problem(line, f'The manifest ID "{line_id}" can only use letters, '
+                                           "numbers, dashes, dots and underscores, up to 64 "
+                                           "characters."))
+        elif manifest_id is None:
+            manifest_id = line_id
+        elif line_id != manifest_id:
+            problems.append(_problem(line, f'This line says manifest ID "{line_id}", but the file '
+                                           f'started with "{manifest_id}". One file is one delivery.'))
+
         name = row[name_at].strip() if name_at < len(row) else ""
         quantity = row[quantity_at].strip() if quantity_at < len(row) else ""
 
@@ -136,4 +149,4 @@ def read_manifest(raw, catalog):
                                      f"{lines}; the most for one product is {MAX_QUANTITY}."))
 
     problems.sort(key=lambda problem: problem["line"] or 0)
-    return Manifest(list(totals.values()), problems)
+    return Manifest(list(totals.values()), problems, manifest_id)

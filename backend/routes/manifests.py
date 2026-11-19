@@ -8,10 +8,13 @@ reads the file again itself rather than trusting an earlier preview, and
 saves every line in one transaction, or nothing at all: a manifest with
 any problem is refused whole. Each stock change goes into inventory_log
 like a manual adjustment, with the reason
-"Delivery manifest #<id> (<filename>)", so it shows in the stock history.
+"Delivery manifest <manifest ID> (<filename>)", so it shows in the stock
+history.
 
-A file whose contents were already applied is refused (delivery_manifests
-keeps each file's fingerprint), so one delivery cannot be counted twice.
+Every file carries a manifest ID, and an ID that was already applied is
+refused (delivery_manifests keeps each one), so one delivery cannot be
+counted twice. A repeat order with the same products is fine: it just has
+a new ID.
 """
 
 import os
@@ -21,7 +24,7 @@ from pymysql.err import IntegrityError
 
 import db
 from common import MANAGER, ApiError, current_user, ok, require_role
-from manifest import MAX_BYTES, fingerprint, read_manifest
+from manifest import MAX_BYTES, read_manifest
 from routes.inventory import MAX_INVENTORY_INT
 
 manifests_bp = Blueprint("manifests", __name__)
@@ -40,18 +43,19 @@ def _catalog():
     return db.query_all("SELECT product_id, name, is_listed FROM products ORDER BY product_id")
 
 
-def _applied_before(file_fingerprint):
+def _applied_before(supplier_manifest_id):
     row = db.query_one(
-        "SELECT m.manifest_id, m.filename, m.applied_at, u.full_name AS applied_by "
+        "SELECT m.manifest_id, m.supplier_manifest_id, m.filename, m.applied_at, "
+        "u.full_name AS applied_by "
         "FROM delivery_manifests m JOIN users u ON u.user_id = m.applied_by "
-        "WHERE m.fingerprint = %s", (file_fingerprint,))
+        "WHERE m.supplier_manifest_id = %s", (supplier_manifest_id,))
     return row
 
 
 def _already_applied_error(previous):
-    return ApiError(f"This delivery manifest was already applied as manifest "
-                    f"#{previous['manifest_id']} by {previous['applied_by']}. "
-                    "Nothing was changed.", 409, "MANIFEST_ALREADY_APPLIED")
+    return ApiError(f"Manifest {previous['supplier_manifest_id']} was already applied by "
+                    f"{previous['applied_by']}. Nothing was changed.", 409,
+                    "MANIFEST_ALREADY_APPLIED")
 
 
 @manifests_bp.post("/api/admin/inventory/manifest/preview")
@@ -68,9 +72,10 @@ def preview_manifest():
             f"WHERE product_id IN ({db.placeholders(ids)})", tuple(ids))
         stock = {row["product_id"]: row["quantity_in_stock"] for row in rows}
 
-    previous = _applied_before(fingerprint(raw))
+    previous = _applied_before(result.manifest_id) if result.manifest_id else None
     return ok(
         filename=filename,
+        supplier_manifest_id=result.manifest_id,
         lines=[{**line, "stock_now": stock.get(line["product_id"], 0),
                 "stock_after": stock.get(line["product_id"], 0) + line["quantity"]}
                for line in result.lines],
@@ -90,8 +95,7 @@ def apply_manifest():
                        "Fix the file and upload it again.", 422, "MANIFEST_INVALID",
                        problems=result.problems)
 
-    file_fingerprint = fingerprint(raw)
-    previous = _applied_before(file_fingerprint)
+    previous = _applied_before(result.manifest_id)
     if previous:
         raise _already_applied_error(previous)
 
@@ -101,14 +105,14 @@ def apply_manifest():
     with db.transaction() as cur:
         try:
             cur.execute(
-                "INSERT INTO delivery_manifests (fingerprint, filename, applied_by, line_count, "
-                "total_units) VALUES (%s, %s, %s, %s, %s)",
-                (file_fingerprint, filename, manager_id, len(result.lines), total_units))
+                "INSERT INTO delivery_manifests (supplier_manifest_id, filename, applied_by, "
+                "line_count, total_units) VALUES (%s, %s, %s, %s, %s)",
+                (result.manifest_id, filename, manager_id, len(result.lines), total_units))
         except IntegrityError:
-            # Another manager applied the same file between our check and this insert.
-            raise _already_applied_error(_applied_before(file_fingerprint)) from None
+            # Another manager applied the same ID between our check and this insert.
+            raise _already_applied_error(_applied_before(result.manifest_id)) from None
         manifest_id = cur.lastrowid
-        reason = f"Delivery manifest #{manifest_id} ({filename})"[:255]
+        reason = f"Delivery manifest {result.manifest_id} ({filename})"[:255]
 
         # Lock rows in product order so two uploads at once cannot deadlock.
         for line in sorted(result.lines, key=lambda entry: entry["product_id"]):
@@ -128,6 +132,7 @@ def apply_manifest():
             applied.append({**line, "stock_now": old, "stock_after": new})
 
     return ok(201,
-              manifest={"manifest_id": manifest_id, "filename": filename,
+              manifest={"manifest_id": manifest_id,
+                        "supplier_manifest_id": result.manifest_id, "filename": filename,
                         "line_count": len(result.lines), "total_units": total_units},
               lines=applied)

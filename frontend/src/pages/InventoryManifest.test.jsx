@@ -20,6 +20,7 @@ const csv = (text, name = 'delivery.csv') => new File([text], name, { type: 'tex
 
 const cleanPreview = {
   filename: 'delivery.csv',
+  supplier_manifest_id: 'DM-1001',
   lines: [
     { line_numbers: [2], product_id: 1, name: 'Organic Apples, 3 lb bag', quantity: 24, stock_now: 40, stock_after: 64, is_listed: true },
     { line_numbers: [3, 5], product_id: 3, name: 'Organic Broccoli Crown', quantity: 30, stock_now: 35, stock_after: 65, is_listed: false },
@@ -36,7 +37,7 @@ let applyResult
 
 function mockApi(signedInUser = manager) {
   preview = cleanPreview
-  applyResult = { manifest: { manifest_id: 12, filename: 'delivery.csv', line_count: 2, total_units: 54 } }
+  applyResult = { manifest: { manifest_id: 12, supplier_manifest_id: 'DM-1001', filename: 'delivery.csv', line_count: 2, total_units: 54 } }
   api.mockImplementation(async (path, options = {}) => {
     const { method = 'GET' } = options
 
@@ -127,18 +128,27 @@ describe('Delivery manifest upload', () => {
     expect(screen.queryByRole('button', { name: 'APPLY MANIFEST' })).not.toBeInTheDocument()
   })
 
-  test('a file that was already applied says so and cannot be applied again', async () => {
+  test('the preview shows the manifest ID from the file', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<Inventory />, { route: '/inventory' })
+
+    await chooseFile(user)
+
+    expect(await screen.findByText('Manifest ID: DM-1001')).toBeInTheDocument()
+  })
+
+  test('a manifest ID that was already applied says so and cannot be applied again', async () => {
     preview = {
       ...cleanPreview,
       can_apply: false,
-      already_applied: { manifest_id: 7, applied_by: 'Maya Chen', applied_at: '2026-11-03T09:30:00' },
+      already_applied: { manifest_id: 7, supplier_manifest_id: 'DM-1001', applied_by: 'Maya Chen', applied_at: '2026-11-03T09:30:00' },
     }
     const user = userEvent.setup()
     renderWithProviders(<Inventory />, { route: '/inventory' })
 
     await chooseFile(user)
 
-    expect(await screen.findByText(/already applied as manifest #7 by Maya Chen/)).toBeInTheDocument()
+    expect(await screen.findByText(/Manifest DM-1001 was already applied by Maya Chen/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'APPLY MANIFEST' })).not.toBeInTheDocument()
   })
 
@@ -152,7 +162,7 @@ describe('Delivery manifest upload', () => {
 
     expect(api.mock.calls.some(([path, options]) =>
       path === '/api/admin/inventory/manifest' && options.body instanceof FormData)).toBe(true)
-    expect(await screen.findByText('Added 54 units from delivery.csv (manifest #12).')).toBeInTheDocument()
+    expect(await screen.findByText('Added 54 units from manifest DM-1001.')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'APPLY MANIFEST' })).not.toBeInTheDocument()
     const loadsAfter = api.mock.calls.filter(([path]) => path.startsWith('/api/admin/inventory?')).length
     expect(loadsAfter).toBeGreaterThan(loadsBefore)

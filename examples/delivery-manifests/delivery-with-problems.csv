@@ -1,8 +1,8 @@
-product_name,quantity
-"Organic Strawberries, 1 lb",20
-Organic Strawbery 1 lb,5
-Organic Carrots, 2 lb bag,12
-"Organic Lemons, 2 lb bag",0
-"Organic Garlic, 0.5 lb",ten
-,15
-"Organic Watermelon, 5 lb",2.5
+manifest_id,product_name,quantity
+DM-2002,"Organic Strawberries, 1 lb",20
+DM-2002,Organic Strawbery 1 lb,5
+DM-2002,Organic Carrots, 2 lb bag,12
+DM-2002,"Organic Lemons, 2 lb bag",0
+DM-2002,"Organic Garlic, 0.5 lb",ten
+DM-2002,,15
+DM-2002,"Organic Watermelon, 5 lb",2.5

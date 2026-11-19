@@ -73,8 +73,8 @@ The same ownership/session and order-number/email checks apply to previews.
 | POST | `/admin/products` | Employee/manager | Create catalog product and starting stock |
 | PATCH, DELETE | `/admin/products/<product_id>` | Employee/manager | Edit/unlist product; preserve purchased snapshots |
 | POST, DELETE | `/admin/products/<product_id>/image` | Employee/manager | Upload/remove product picture |
-| POST | `/admin/inventory/manifest/preview` | Manager | Multipart CSV `file`; validate and preview restock, no stock mutation |
-| POST | `/admin/inventory/manifest` | Manager | Revalidate/apply entire restock CSV atomically; reject duplicate fingerprint |
+| POST | `/admin/inventory/manifest/preview` | Manager | Multipart CSV `file` with columns `manifest_id`, `product_name`, `quantity`; validate and preview restock, no stock mutation |
+| POST | `/admin/inventory/manifest` | Manager | Revalidate/apply entire restock CSV atomically; reject a manifest ID that was already applied |
 | GET | `/staff/delivery/trips` | Employee/manager | Read-only trip geometry/progress; omit customer contact/address/payment data |
 
 The `/admin` prefix alone does not imply manager-only: the inventory/product

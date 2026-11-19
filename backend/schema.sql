@@ -123,7 +123,7 @@ CREATE TABLE inventory_log (
 -- "Delivery manifest #<manifest_id> (<filename>)".
 CREATE TABLE delivery_manifests (
   manifest_id  BIGINT AUTO_INCREMENT PRIMARY KEY,
-  fingerprint  CHAR(64)     NOT NULL UNIQUE,
+  supplier_manifest_id VARCHAR(64) NOT NULL UNIQUE,
   filename     VARCHAR(255) NOT NULL,
   applied_by   BIGINT       NOT NULL,
   line_count   INT          NOT NULL,
