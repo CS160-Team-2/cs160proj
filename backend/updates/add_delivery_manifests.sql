@@ -4,7 +4,8 @@
 -- SETUP.md, "Updating your database after a pull", has the commands.
 --
 -- Safe to run more than once: if the table already exists, nothing happens.
--- The definition matches backend/schema.sql.
+-- add_manifest_ids.sql then brings the table up to date with
+-- backend/schema.sql, so run that one next.
 
 USE ofs;
 

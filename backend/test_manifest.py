@@ -6,17 +6,18 @@ problem it found. It never touches the database, so the same file and
 the same catalog always give the same answer, and these tests can check
 the rules exhaustively.
 
-A manifest is a CSV file with a header row:
+A manifest is a CSV file with a header row, and every line carries the
+ID of the delivery:
 
-    product_name,quantity
-    "Organic Apples, 3 lb bag",24
+    manifest_id,product_name,quantity
+    DM-1001,"Organic Apples, 3 lb bag",24
 
 Run:  pytest test_manifest.py -v
 """
 
 import pytest
 
-from manifest import MAX_BYTES, MAX_LINES, MAX_QUANTITY, fingerprint, read_manifest
+from manifest import MAX_BYTES, MAX_LINES, MAX_QUANTITY, read_manifest
 
 CATALOG = [
     {"product_id": 1, "name": "Organic Apples, 3 lb bag", "is_listed": True},
@@ -27,7 +28,13 @@ CATALOG = [
 
 
 def manifest(*rows, header="product_name,quantity"):
-    return "\n".join([header, *rows]).encode("utf-8")
+    """A file with the ID DM-1001 added as the last column of every non-blank row."""
+    stamped = [f"{row},DM-1001" if row.strip() else row for row in rows]
+    return "\n".join([f"{header},manifest_id", *stamped]).encode("utf-8")
+
+
+def raw_file(*rows):
+    return "\n".join(["manifest_id,product_name,quantity", *rows]).encode("utf-8")
 
 
 def lines_by_id(result):
@@ -96,7 +103,7 @@ def test_unlisted_products_can_be_restocked_and_are_marked():
 
 
 def test_excel_byte_order_mark_and_windows_line_endings_are_handled():
-    raw = '﻿product_name,quantity\r\nOrganic Broccoli Crown,7\r\n'.encode("utf-8")
+    raw = '﻿manifest_id,product_name,quantity\r\nDM-1001,Organic Broccoli Crown,7\r\n'.encode("utf-8")
     result = read_manifest(raw, CATALOG)
     assert result.ok
     assert lines_by_id(result)[3]["quantity"] == 7
@@ -200,8 +207,49 @@ def test_the_same_file_always_gives_the_same_result():
     assert first.problems == second.problems
 
 
-def test_the_fingerprint_identifies_the_file_contents():
-    raw = manifest("Organic Broccoli Crown,3")
-    assert fingerprint(raw) == fingerprint(bytes(raw))
-    assert fingerprint(raw) != fingerprint(manifest("Organic Broccoli Crown,4"))
-    assert len(fingerprint(raw)) == 64          # a SHA-256 hex digest
+# =====================================================================
+# The manifest ID: one per file, on every line
+# =====================================================================
+
+def test_the_manifest_id_is_read_from_the_file():
+    result = read_manifest(raw_file("DM-1001,Organic Broccoli Crown,3",
+                                    'DM-1001,"Organic Apples, 3 lb bag",4'), CATALOG)
+    assert result.ok
+    assert result.manifest_id == "DM-1001"
+
+
+def test_capitals_and_spaces_around_the_id_do_not_make_it_a_different_id():
+    result = read_manifest(raw_file("  dm-1001 ,Organic Broccoli Crown,3",
+                                    'DM-1001,"Organic Bananas, bunch",1'), CATALOG)
+    assert result.ok
+    assert result.manifest_id == "DM-1001"
+
+
+def test_a_file_without_the_id_column_is_a_problem():
+    result = read_manifest(b"product_name,quantity\nOrganic Broccoli Crown,3\n", CATALOG)
+    assert not result.ok
+    assert problem_lines(result) == [1]
+    assert "manifest_id" in result.problems[0]["message"]
+
+
+def test_a_line_without_an_id_is_a_problem():
+    result = read_manifest(raw_file("DM-1001,Organic Broccoli Crown,3",
+                                    ',"Organic Apples, 3 lb bag",4'), CATALOG)
+    assert problem_lines(result) == [3]
+    assert "manifest ID is missing" in result.problems[0]["message"]
+
+
+def test_two_ids_in_one_file_is_a_problem():
+    result = read_manifest(raw_file("DM-1001,Organic Broccoli Crown,3",
+                                    'DM-1002,"Organic Apples, 3 lb bag",4'), CATALOG)
+    assert problem_lines(result) == [3]
+    assert "DM-1002" in result.problems[0]["message"]
+    assert "DM-1001" in result.problems[0]["message"]
+
+
+@pytest.mark.parametrize("bad_id", ["DM 1001", "DM#1001", "-1001", "A" * 65])
+def test_an_id_with_the_wrong_shape_is_a_problem(bad_id):
+    result = read_manifest(raw_file(f"{bad_id},Organic Broccoli Crown,3"), CATALOG)
+    assert not result.ok
+    assert problem_lines(result) == [2]
+    assert result.manifest_id is None

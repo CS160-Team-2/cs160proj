@@ -11,7 +11,8 @@ const asForm = (file) => {
   return form
 }
 
-// Managers restock from a delivery manifest (a CSV of product_name,quantity).
+// Managers restock from a delivery manifest (a CSV of manifest_id,product_name,quantity).
+// Each manifest ID can only be applied once, so a delivery cannot be counted twice.
 // Choosing a file shows what would change; nothing is saved until APPLY,
 // and the backend refuses the whole file if any line has a problem.
 // onApplied runs after a manifest is saved, so the page can reload stock.
@@ -52,7 +53,7 @@ const ManifestUpload = ({ onApplied }) => {
     try {
       const { manifest } = await api('/api/admin/inventory/manifest', { method: 'POST', body: asForm(file) })
       reset()
-      setNotice(`Added ${manifest.total_units} units from ${manifest.filename} (manifest #${manifest.manifest_id}).`)
+      setNotice(`Added ${manifest.total_units} units from manifest ${manifest.supplier_manifest_id}.`)
       onApplied()
     } catch (err) {
       setError(err.message)
@@ -64,7 +65,8 @@ const ManifestUpload = ({ onApplied }) => {
     <div className="mb-6 border p-4 text-gray-700">
       <p className="font-medium">Delivery manifest</p>
       <p className="text-sm text-gray-500 mb-3">
-        Upload a CSV file with the columns product_name and quantity. You will see the changes before anything is saved.
+        Upload a CSV file with the columns manifest_id, product_name and quantity. You will see the changes before anything is saved.
+        Each delivery needs its own manifest ID, and an ID can only be applied once.
       </p>
       <input
         key={inputKey}
@@ -77,10 +79,15 @@ const ManifestUpload = ({ onApplied }) => {
 
       {preview && (
         <div className="mt-4">
+          {preview.supplier_manifest_id && (
+            <p className="mb-3 text-sm font-medium">Manifest ID: {preview.supplier_manifest_id}</p>
+          )}
+
           {preview.already_applied && (
             <p className="mb-3 text-sm text-red-600">
-              This file was already applied as manifest #{preview.already_applied.manifest_id} by{' '}
+              Manifest {preview.already_applied.supplier_manifest_id} was already applied by{' '}
               {preview.already_applied.applied_by} on {formatTime(preview.already_applied.applied_at)}.
+              A new delivery needs its own manifest ID.
             </p>
           )}
 

@@ -513,6 +513,24 @@ mysql -u root -p < backend/updates/add_delivery_manifests.sql
 docker exec -i ofs-mysql-test mysql -ucs160team2 -pteam2_password < backend/updates/add_delivery_manifests.sql
 ```
 
+### The current change: manifest IDs
+
+Every delivery manifest now has its own ID in a `manifest_id` column, and an ID can only be applied once. If your database is missing this, uploading a manifest fails with an error about an unknown `supplier_manifest_id` column. Rebuilding from scratch (Option A above) fixes it, or run this update, which keeps your local data and is safe to run more than once. Run `add_delivery_manifests.sql` first if you have never run it.
+
+*With MySQL Workbench:* connect as root, choose **File → Open SQL Script**, pick `backend/updates/add_manifest_ids.sql`, and click the lightning bolt to run it.
+
+*With the terminal (local MySQL on port 3306),* from the repository root:
+
+```bash
+mysql -u root -p < backend/updates/add_manifest_ids.sql
+```
+
+*If you use the Docker database from Part 2.4 as your `ofs` database,* start it first, then from the repository root:
+
+```bash
+docker exec -i ofs-mysql-test mysql -ucs160team2 -pteam2_password < backend/updates/add_manifest_ids.sql
+```
+
 MySQL may warn that using a password on the command line is insecure. That is expected for this shared demo password and can be ignored.
 
 **Check that it worked:** restart Flask, sign in as the manager (`manager@ofs.test`), open **Inventory**, and choose a CSV file under **Delivery manifest**. You should see a preview table, not an error. A CSV file needs a header line with `product_name` and `quantity`, and any product name that contains a comma must be in double quotes:
