@@ -1,29 +1,11 @@
-"""Authentication and accounts (API design table I) and staff accounts
-(table II).
-
-    POST   /api/auth/register          public    create a customer account
-    POST   /api/auth/login             public    start a session, returns the role
-    POST   /api/auth/logout            signed in
-    GET    /api/auth/me                signed in
-    PATCH  /api/users/me               signed in  edit own name, phone, email, password
-
-    GET    /api/admin/staff            manager
-    POST   /api/admin/staff            manager   create an employee or manager
-    PATCH  /api/admin/staff/<id>       manager   edit details or role, or reactivate
-    DELETE /api/admin/staff/<id>       manager   deactivate (never deleted)
-
-Passwords are stored only as salted PBKDF2 hashes. The session is a
-signed cookie holding the user id; the role is re-read from the database
-on every request (see common.current_user).
-"""
-
 import re
 
-from flask import Blueprint, session
+from flask import Blueprint, request, session
 from pymysql.err import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import db
+import ratelimit
 from common import (ANY_USER, CUSTOMER, MANAGER, ApiError, body, current_user, ok,
                     optional_text, require_role, require_text, user_json)
 from routes import cart as cart_routes
@@ -32,6 +14,8 @@ auth_bp = Blueprint("auth", __name__)
 
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 MIN_PASSWORD_LENGTH = 8
+MAX_PASSWORD_LENGTH = 128
+NO_SUCH_USER_HASH = generate_password_hash("no account has this password")
 STAFF_ROLES = ("employee", "manager")
 
 
@@ -51,6 +35,8 @@ def _valid_password(data, field="password"):
     if not isinstance(password, str) or len(password) < MIN_PASSWORD_LENGTH:
         raise ApiError(f"Password must be at least {MIN_PASSWORD_LENGTH} characters",
                        code="WEAK_PASSWORD")
+    if len(password) > MAX_PASSWORD_LENGTH:
+        raise ApiError(f"Password must be at most {MAX_PASSWORD_LENGTH} characters", code="WEAK_PASSWORD")
     return password
 
 
@@ -64,8 +50,6 @@ def _create_user(email, password, full_name, role, phone=None):
             )
             return cur.lastrowid
     except IntegrityError:
-        # The UNIQUE constraint on email, which also covers two sign-ups
-        # racing each other with the same address.
         raise ApiError("An account with that email already exists", 409, "EMAIL_TAKEN") from None
 
 
@@ -83,20 +67,15 @@ def _remember(data):
 
 
 def _start_session(user, remember=True):
-    # Anything a signed-out visitor put in their cart survives sign-in.
     guest_cart = session.get("guest_cart")
     session.clear()
     session["user_id"] = user["user_id"]
-    # Shoppers who tick "Remember me" stay signed in for the cart lifetime; everyone else ends with the browser.
     session.permanent = user["role"] == "customer" and remember
     if user["role"] == "customer" and guest_cart:
         cart_routes.merge_guest_cart(user["user_id"], guest_cart)
 
 
-# =====================================================================
-# Own account
-# =====================================================================
-
+# POST /api/auth/register: Creates a customer account and signs it in.
 @auth_bp.post("/api/auth/register")
 def register():
     data = body()
@@ -111,17 +90,26 @@ def register():
     return ok(201, message="Account created", user=user_json(user))
 
 
+# POST /api/auth/login: Signs a customer or staff member in.
 @auth_bp.post("/api/auth/login")
 def login():
     data = body()
     email = (data.get("email") or "").strip().lower() if isinstance(data.get("email"), str) else ""
     password = data.get("password") if isinstance(data.get("password"), str) else ""
 
+    address = request.remote_addr or "unknown"
+    keys = (f"{address}|{email}", address)
+    ratelimit.SIGN_IN.check(keys[0])
+    ratelimit.SIGN_IN_ANY.check(address)
+
     row = db.query_one("SELECT * FROM users WHERE email = %s", (email,))
-    # Same message whether the email or the password was wrong, so the
-    # login form cannot be used to find out who has an account.
-    if row is None or not check_password_hash(row["password_hash"], password):
+    stored_hash = row["password_hash"] if row is not None else NO_SUCH_USER_HASH
+    password_ok = check_password_hash(stored_hash, password)
+    if row is None or not password_ok:
+        ratelimit.SIGN_IN.fail(keys[0])
+        ratelimit.SIGN_IN_ANY.fail(address)
         raise ApiError("Invalid email or password", 401, "INVALID_CREDENTIALS")
+    ratelimit.SIGN_IN.clear(keys[0])
     if not row["is_active"]:
         raise ApiError("This account has been deactivated", 403, "ACCOUNT_INACTIVE")
 
@@ -129,6 +117,7 @@ def login():
     return ok(message="Signed in", user=user_json(row))
 
 
+# POST /api/auth/logout: Signs the current user out.
 @auth_bp.post("/api/auth/logout")
 @require_role(*ANY_USER)
 def logout():
@@ -136,18 +125,17 @@ def logout():
     return ok(message="Signed out")
 
 
+# GET /api/auth/me: Returns the signed-in user.
 @auth_bp.get("/api/auth/me")
 @require_role(*ANY_USER)
 def me():
     return ok(user=user_json(current_user()))
 
 
+# PATCH /api/users/me: Updates the signed-in user's name, phone, email or password.
 @auth_bp.patch("/api/users/me")
 @require_role(*ANY_USER)
 def update_me():
-    """Body: any of full_name, phone, email, and new_password (which also
-    needs current_password). Role and active status cannot be changed
-    here."""
     data = body()
     user = current_user()
     changes = {}
@@ -162,8 +150,11 @@ def update_me():
         stored = db.query_one("SELECT password_hash FROM users WHERE user_id = %s",
                               (user["user_id"],))
         current = data.get("current_password")
+        ratelimit.PASSWORD_CHECK.check(f"user:{user['user_id']}")
         if not isinstance(current, str) or not check_password_hash(stored["password_hash"], current):
+            ratelimit.PASSWORD_CHECK.fail(f"user:{user['user_id']}")
             raise ApiError("Current password is incorrect", 403, "WRONG_PASSWORD")
+        ratelimit.PASSWORD_CHECK.clear(f"user:{user['user_id']}")
         changes["password_hash"] = _hash(_valid_password(data, "new_password"))
 
     if not changes:
@@ -173,26 +164,21 @@ def update_me():
     return ok(user=user_json(_load_user(user["user_id"])))
 
 
-# Closes the signed-in customer's own account (anonymised, orders kept).
+# DELETE /api/users/me: Body: password. Closes the customer's own account.
 @auth_bp.delete("/api/users/me")
 @require_role(*CUSTOMER)
 def delete_me():
-    """Body: password. Closes the customer's own account.
-
-    Past orders and payments are business records, so the account row stays
-    but is anonymised and deactivated: the name, email, phone and password
-    are replaced, the cart is emptied, and saved addresses are removed (the
-    ones that past orders were delivered to are only hidden). The email
-    becomes free to register again. Refused while an order is still on its
-    way."""
     user = current_user()
     if user.get("is_guest"):
         raise ApiError("Guest checkouts have no account to delete", 400, "GUEST_ACCOUNT")
 
     stored = db.query_one("SELECT password_hash FROM users WHERE user_id = %s", (user["user_id"],))
     password = body().get("password")
+    ratelimit.PASSWORD_CHECK.check(f"user:{user['user_id']}")
     if not isinstance(password, str) or not check_password_hash(stored["password_hash"], password):
+        ratelimit.PASSWORD_CHECK.fail(f"user:{user['user_id']}")
         raise ApiError("Password is incorrect", 403, "WRONG_PASSWORD")
+    ratelimit.PASSWORD_CHECK.clear(f"user:{user['user_id']}")
 
     active = db.query_one(
         "SELECT COUNT(*) AS n FROM orders WHERE user_id = %s AND status <> 'delivered'",
@@ -227,10 +213,6 @@ def _update_user(user_id, changes):
         raise ApiError("An account with that email already exists", 409, "EMAIL_TAKEN") from None
 
 
-# =====================================================================
-# Staff accounts (manager only)
-# =====================================================================
-
 def _staff_json(row):
     return {**user_json(row), "is_active": bool(row["is_active"]), "created_at": row["created_at"]}
 
@@ -249,14 +231,8 @@ def _staff_role(data):
     return role
 
 
+# Serialize staff changes and re-check permission using current rows.
 def _lock_staff(cur):
-    """Serialize staff changes and re-check permission using current rows.
-
-    Two managers may both pass the request's initial role check, then try
-    to remove each other. Taking the same ordered locks before either
-    mutation makes the second request see the first request's committed
-    role/active changes instead of relying on its cached sign-in data.
-    """
     cur.execute(
         "SELECT user_id, role, is_active FROM users "
         "WHERE role IN ('employee', 'manager') ORDER BY user_id FOR UPDATE"
@@ -270,8 +246,8 @@ def _lock_staff(cur):
     return staff
 
 
+# Apply validated fields with self/last-manager protection in one transaction.
 def _change_staff(user_id, changes):
-    """Apply validated fields with self/last-manager protection in one transaction."""
     try:
         with db.transaction() as cur:
             staff = _lock_staff(cur)
@@ -301,6 +277,7 @@ def _change_staff(user_id, changes):
         raise ApiError("An account with that email already exists", 409, "EMAIL_TAKEN") from None
 
 
+# GET /api/admin/staff: Lists staff accounts.
 @auth_bp.get("/api/admin/staff")
 @require_role(*MANAGER)
 def list_staff():
@@ -311,6 +288,7 @@ def list_staff():
     return ok(staff=[_staff_json(r) for r in rows])
 
 
+# POST /api/admin/staff: Adds an employee or manager account.
 @auth_bp.post("/api/admin/staff")
 @require_role(*MANAGER)
 def create_staff():
@@ -336,11 +314,10 @@ def create_staff():
     return ok(201, staff=_staff_json(_load_user(user_id)))
 
 
+# PATCH /api/admin/staff/<int:user_id>: Body: any of full_name, phone, email, role, is_active (true only, to reactivate; use DELETE to deactivate).
 @auth_bp.patch("/api/admin/staff/<int:user_id>")
 @require_role(*MANAGER)
 def update_staff(user_id):
-    """Body: any of full_name, phone, email, role, is_active (true only,
-    to reactivate; use DELETE to deactivate)."""
     data = body()
     changes = {}
 
@@ -364,6 +341,7 @@ def update_staff(user_id):
     return ok(staff=_staff_json(_load_user(user_id)))
 
 
+# DELETE /api/admin/staff/<int:user_id>
 @auth_bp.delete("/api/admin/staff/<int:user_id>")
 @require_role(*MANAGER)
 def deactivate_staff(user_id):

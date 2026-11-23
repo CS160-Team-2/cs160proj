@@ -1,25 +1,4 @@
-"""Mapping service: turn addresses into coordinates, and plan routes.
-
-One interface, three providers, chosen by MAP_PROVIDER in .env:
-
-    fake     (default) works offline, same answer every time
-    google   Google Geocoding + Routes APIs       (needs GOOGLE_MAPS_API_KEY)
-    mapbox   Mapbox Geocoding + Optimization APIs (needs MAPBOX_ACCESS_TOKEN)
-
-Every provider offers the same two calls:
-
-    geocode(street, city, state, zip_code) -> GeoPoint, or None if not found
-    route(origin, stops)                   -> Route
-
-`stops` is a list of (key, GeoPoint). The route visits every stop once,
-starting and ending at the store, in whatever order is fastest given
-current traffic, and says when it reaches each stop.
-
-Provider contracts are tested with mocked HTTP responses, so automated tests
-never use quota or require secrets. A live-key smoke test is still required
-before a team demo that selects Google or Mapbox (backlog T-14).
-"""
-
+import difflib
 import hashlib
 import json
 import math
@@ -31,8 +10,9 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 
 
+# The provider could not be reached or could not plan the route.
 class MappingError(Exception):
-    """The provider could not be reached or could not plan the route."""
+    pass
 
 
 @dataclass
@@ -43,9 +23,9 @@ class GeoPoint:
 
 @dataclass
 class Route:
-    stop_order: list            # stop keys, in visiting order
-    arrival_seconds: dict       # stop key -> seconds after leaving the store
-    path: list = field(default_factory=list)   # [[lat, lng], ...] to draw on a map
+    stop_order: list
+    arrival_seconds: dict
+    path: list = field(default_factory=list)
     total_seconds: int = 0
     provider: str = ""
 
@@ -57,26 +37,81 @@ def store_location():
     )
 
 
+# Straight-line miles between the store and a point.
+def miles_from_store(point):
+    return _miles(store_location(), point)
+
+
 def _q6(value):
     return Decimal(str(value)).quantize(Decimal("0.000001"))
 
 
-# =====================================================================
-# Fake provider
-# =====================================================================
+_SUFFIXES = {
+    "street": "st", "st": "st", "drive": "dr", "dr": "dr", "road": "rd", "rd": "rd",
+    "avenue": "ave", "ave": "ave", "av": "ave", "boulevard": "blvd", "blvd": "blvd",
+    "lane": "ln", "ln": "ln", "court": "ct", "ct": "ct", "place": "pl", "pl": "pl",
+    "square": "sq", "sq": "sq", "circle": "cir", "cir": "cir", "terrace": "ter", "ter": "ter",
+    "parkway": "pkwy", "pkwy": "pkwy", "highway": "hwy", "hwy": "hwy", "way": "way",
+    "trail": "trl", "trl": "trl", "plaza": "plz", "plz": "plz", "alley": "aly", "aly": "aly",
+}
+_DIRECTIONS = {"north": "n", "south": "s", "east": "e", "west": "w", "n": "n", "s": "s", "e": "e", "w": "w"}
+_NAME_SYNONYMS = {
+    "first": "1st", "second": "2nd", "third": "3rd", "fourth": "4th", "fifth": "5th", "sixth": "6th",
+    "seventh": "7th", "eighth": "8th", "ninth": "9th", "tenth": "10th", "eleventh": "11th",
+    "twelfth": "12th", "saint": "st", "mount": "mt", "fort": "ft", "port": "pt",
+}
+_UNIT_WORDS = {"apt", "apartment", "unit", "suite", "ste", "fl", "floor", "room", "rm", "bldg", "building"}
+_MIN_RELEVANCE = 0.6
+_PRECISE = {"rooftop", "parcel", "point", "interpolated", "intersection"}
 
+
+# Lower-cases a name and drops punctuation, returning its words.
+def _words(text):
+    return re.sub(r"[^a-z0-9 ]", " ", (text or "").lower().replace("#", " # ")).split()
+
+
+# Splits a typed street line into (house number, street-name words, street suffix), ignoring apartment details.
+def _street_parts(street):
+    words = _words(street)
+    for index, word in enumerate(words):
+        if word in _UNIT_WORDS or word == "#":
+            words = words[:index]
+            break
+    number = words[0] if words and re.fullmatch(r"\d+[a-z]?", words[0]) else None
+    rest = words[1:] if number else words
+    suffix = _SUFFIXES.get(rest[-1]) if rest else None
+    name = rest[:-1] if suffix else rest
+    name = [_NAME_SYNONYMS.get(_DIRECTIONS.get(word, word), _DIRECTIONS.get(word, word)) for word in name]
+    return number, " ".join(name), suffix
+
+
+# True when two names are the same or differ by a small typo.
+def _similar(a, b):
+    a, b = " ".join(_words(a)), " ".join(_words(b))
+    return bool(a) and bool(b) and (a == b or difflib.SequenceMatcher(None, a, b).ratio() >= 0.85)
+
+
+# True when the found address is the typed address
+def address_matches(typed_street, typed_city, typed_state, typed_zip,
+                    found_number, found_street, found_city, found_state, found_zip):
+    number, name, suffix = _street_parts(typed_street)
+    f_number, f_name, f_suffix = _street_parts(f"{found_number or ''} {found_street or ''}")
+    if not number or not f_number or number != f_number:
+        return False
+    if not _similar(name, f_name) or (suffix and f_suffix and suffix != f_suffix):
+        return False
+    state = " ".join(_words(typed_state))
+    if found_state and state not in {" ".join(_words(found_state[0])), " ".join(_words(found_state[1]))}:
+        return False
+    city_ok = bool(found_city) and _similar(typed_city, found_city)
+    zip_ok = bool(found_zip) and (typed_zip or "")[:3] == str(found_zip)[:3]
+    if not found_city and not found_zip:
+        return True
+    return city_ok or zip_ok
+
+
+# Deterministic stand-in for a real mapping service.
 class FakeMapProvider:
-    """Deterministic stand-in for a real mapping service.
-
-    An address is "not found" when its ZIP code is not five digits, its
-    street has no house number, or it contains the word "nowhere". Any
-    other address gets a fixed point within a few miles of the store,
-    derived from the address text, so the same address always lands in
-    the same place.
-
-    Routes use nearest-next-stop ordering at 25 mph average city speed,
-    plus three minutes at each stop.
-    """
 
     SPEED_MPH = 25
     MINUTES_PER_STOP = 3
@@ -94,7 +129,6 @@ class FakeMapProvider:
 
         digest = hashlib.sha256(text.lower().encode()).digest()
         store = store_location()
-        # Up to about 0.05 degrees (3 to 4 miles) from the store.
         lat_offset = (digest[0] / 255 - 0.5) * 0.1
         lng_offset = (digest[1] / 255 - 0.5) * 0.1
         return GeoPoint(_q6(float(store.latitude) + lat_offset),
@@ -130,10 +164,6 @@ def _miles(a, b):
     return 3958.8 * 2 * math.asin(math.sqrt(h))
 
 
-# =====================================================================
-# Real providers
-# =====================================================================
-
 def _request_json(url, *, payload=None, headers=None):
     try:
         request = urllib.request.Request(
@@ -152,8 +182,8 @@ def _get_json(url):
     return _request_json(url)
 
 
+# Turn a Google protobuf duration such as ``"12.5s"`` into seconds.
 def _duration_seconds(value):
-    """Turn a Google protobuf duration such as ``"12.5s"`` into seconds."""
     if not isinstance(value, str) or not value.endswith("s"):
         raise MappingError("Google Routes returned an invalid duration")
     try:
@@ -162,8 +192,8 @@ def _duration_seconds(value):
         raise MappingError("Google Routes returned an invalid duration") from None
 
 
+# A key-free Google Maps link from one GeoPoint to another.
 def directions_url(origin, destination):
-    """A key-free Google Maps link from one GeoPoint to another."""
     query = urllib.parse.urlencode({
         "api": "1",
         "origin": f"{origin.latitude},{origin.longitude}",
@@ -191,7 +221,24 @@ class GoogleMapProvider:
             return None
         if data.get("status") != "OK":
             raise MappingError(f"Google geocoding failed: {data.get('status')}")
-        location = data["results"][0]["geometry"]["location"]
+        best = data["results"][0]
+        if best.get("partial_match") or best["geometry"].get("location_type") not in ("ROOFTOP", "RANGE_INTERPOLATED"):
+            return None
+        found = {kind: component for component in best.get("address_components", [])
+                 for kind in component.get("types", [])}
+
+        # One piece of the found address, such as its street number.
+        def piece(kind, key="long_name"):
+            return (found.get(kind) or {}).get(key)
+
+        region = found.get("administrative_area_level_1")
+        if not address_matches(street, city, state, zip_code,
+                               piece("street_number"), piece("route"),
+                               piece("locality") or piece("sublocality") or piece("postal_town"),
+                               (region["short_name"], region["long_name"]) if region else None,
+                               piece("postal_code")):
+            return None
+        location = best["geometry"]["location"]
         return GeoPoint(_q6(location["lat"]), _q6(location["lng"]))
 
     def route(self, origin, stops):
@@ -206,8 +253,6 @@ class GoogleMapProvider:
             "destination": waypoint(origin),
             "intermediates": [waypoint(point) for _, point in stops],
             "travelMode": "DRIVE",
-            # Waypoint optimization supports TRAFFIC_AWARE, but not
-            # TRAFFIC_AWARE_OPTIMAL.
             "routingPreference": "TRAFFIC_AWARE",
             "optimizeWaypointOrder": True,
             "polylineQuality": "OVERVIEW",
@@ -269,7 +314,21 @@ class MapboxProvider:
         features = data.get("features") or []
         if not features:
             return None
-        lng, lat = features[0]["center"]
+        best = features[0]
+        if best.get("relevance", 1) < _MIN_RELEVANCE:
+            return None
+        if (best.get("properties") or {}).get("accuracy") not in _PRECISE:
+            return None
+        context = {item["id"].split(".")[0]: item for item in best.get("context", [])}
+        region = context.get("region")
+        short = (region or {}).get("short_code", "")
+        if not address_matches(street, city, state, zip_code,
+                               best.get("address"), best.get("text"),
+                               (context.get("place") or {}).get("text"),
+                               (short.split("-")[-1], region.get("text", "")) if region else None,
+                               (context.get("postcode") or {}).get("text")):
+            return None
+        lng, lat = best["center"]
         return GeoPoint(_q6(lat), _q6(lng))
 
     def route(self, origin, stops):
@@ -283,7 +342,6 @@ class MapboxProvider:
         if data.get("code") != "Ok":
             raise MappingError(f"Mapbox optimization failed: {data.get('code')}")
 
-        # waypoints[i] is input point i; waypoint_index is its place in the trip.
         positions = [w["waypoint_index"] for w in data["waypoints"]]
         order = [stops[i - 1][0] for i in sorted(range(1, len(points)), key=lambda i: positions[i])]
         trip = data["trips"][0]
@@ -297,8 +355,8 @@ class MapboxProvider:
         return Route(order, arrivals, path, elapsed, "mapbox")
 
 
+# Google's encoded polyline format to [[lat, lng], ...].
 def _decode_polyline(encoded):
-    """Google's encoded polyline format to [[lat, lng], ...]."""
     points, index, lat, lng = [], 0, 0, 0
     while index < len(encoded):
         for axis in (0, 1):
@@ -319,15 +377,11 @@ def _decode_polyline(encoded):
     return points
 
 
-# =====================================================================
-# Choosing the provider
-# =====================================================================
-
 _provider = None
 
 
+# Read the active adapter's identity without a network call or key lookup.
 def provider_name():
-    """Read the active adapter's identity without a network call or key lookup."""
     if _provider is None:
         return os.environ.get('MAP_PROVIDER', 'fake')
     for cls, name in ((GoogleMapProvider, 'google'), (MapboxProvider, 'mapbox'), (FakeMapProvider, 'fake')):
@@ -351,7 +405,7 @@ def provider():
     return _provider
 
 
+# Swap the provider, for tests.
 def use_provider(instance):
-    """Swap the provider, for tests."""
     global _provider
     _provider = instance

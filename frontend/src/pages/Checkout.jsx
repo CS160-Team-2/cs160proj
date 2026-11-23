@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { StoreContext } from '../context/StoreContext'
 import { api } from '../api'
 import TextContent from '../components/TextContent'
+import ProblemPanel from '../components/ProblemPanel'
 import { CardIcon, LockIcon } from '../components/Icons'
 import StripePayment, { stripePublishableKey } from '../components/StripePayment'
 import PayPalPayment from '../components/PayPalPayment'
@@ -97,7 +98,7 @@ const clearGuest = () => {
 // The checkout page: contact, address, card and order summary.
 const Checkout = () => {
 
-  const { user, currency, cart, reloadCart, reloadProducts, guestCheckout } = useContext(StoreContext)
+  const { user, currency, cart, cartError, reloadCart, reloadProducts, guestCheckout } = useContext(StoreContext)
   const navigate = useNavigate()
 
   const [addresses, setAddresses] = useState([])
@@ -180,6 +181,15 @@ const Checkout = () => {
         setPreviewError(err.message)
       })
   }, [addressId, cart])
+
+  if (cartError && cart.items.length === 0) {
+    return (
+      <ProblemPanel title="We could not load your cart" message={cartError}>
+        <button type="button" onClick={() => reloadCart()} className="bg-green-600 text-white px-8 py-3 text-sm">TRY AGAIN</button>
+        <Link to="/products" className="border border-gray-800 px-8 py-3 text-sm">BROWSE PRODUCTS</Link>
+      </ProblemPanel>
+    )
+  }
 
   if (user === undefined) return null
   if (user && !isCustomer) return <p className="pt-14 text-center text-gray-600">Staff accounts cannot place orders.</p>
@@ -336,6 +346,7 @@ const Checkout = () => {
               {field('state', 'State', { autoComplete: 'address-level1', maxLength: 50 })}
               {field('zip_code', 'ZIP', { autoComplete: 'postal-code', inputMode: 'numeric' })}
             </div>
+            <p className="text-xs text-gray-500">We deliver within 25 miles of our San Jose store.</p>
           </div>
         )}
 

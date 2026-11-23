@@ -39,7 +39,7 @@ or vehicle token hashes appear in order or manager responses.
 | POST | `/orders` | Customer/guest checkout session | Charge and create order atomically with stock updates; idempotent checkout key |
 | GET | `/orders` | Customer session | Own order history |
 | GET | `/orders/<order_number>` | Owning customer session | Preserved order details |
-| GET | `/orders/<order_number>/tracking` | Owning customer session | Status/history and own destination tracking |
+| GET | `/orders/<order_number>/tracking` | Owning customer session | Status/history and own destination tracking; steps follow the current status, and `notice` says when the store took the order off a trip |
 | POST | `/orders/lookup` | Public, order number + checkout email | Guest/order tracking lookup without another customer's trip details |
 
 Guest checkout uses the existing customer-role session internally; public
@@ -69,13 +69,18 @@ The same ownership/session and order-number/email checks apply to previews.
 | GET | `/admin/inventory` | Employee/manager | Inventory search and filters |
 | GET | `/admin/inventory/low-stock` | Employee/manager | Low-stock products |
 | PATCH | `/admin/inventory/<product_id>` | Employee/manager | Stock delta/threshold update with audit record |
-| GET | `/admin/inventory/<product_id>/changes` | Employee/manager | Stock change history |
-| POST | `/admin/products` | Employee/manager | Create catalog product and starting stock |
+| GET | `/admin/inventory/<product_id>/changes` | Employee/manager | Stock change history, newest first (`?limit=`, default 100, at most 500) |
+| GET | `/admin/categories` | Employee/manager | Every category in use, including those only on unlisted products |
+| POST | `/admin/products` | Employee/manager | Create catalog product and starting stock; price must be more than zero; name must be unused (409 `DUPLICATE_PRODUCT_NAME`) |
 | PATCH, DELETE | `/admin/products/<product_id>` | Employee/manager | Edit/unlist product; preserve purchased snapshots |
-| POST, DELETE | `/admin/products/<product_id>/image` | Employee/manager | Upload/remove product picture |
+| POST, DELETE | `/admin/products/<product_id>/image` | Employee/manager | Upload/remove product picture; the picture is stored in the database (`product_pictures`), so it travels with it |
+| GET | `/product-images/<filename>` | Public | Serve an uploaded picture from the database (old file pictures are copied in on first use) |
 | POST | `/admin/inventory/manifest/preview` | Manager | Multipart CSV `file` with columns `manifest_id`, `product_name`, `quantity`; validate and preview restock, no stock mutation |
 | POST | `/admin/inventory/manifest` | Manager | Revalidate/apply entire restock CSV atomically; reject a manifest ID that was already applied |
-| GET | `/staff/delivery/trips` | Employee/manager | Read-only trip geometry/progress; omit customer contact/address/payment data |
+| GET | `/staff/delivery/trips` | Employee/manager | Read-only trip geometry/progress; omit customer contact/address/payment data; trips with no orders are hidden |
+| GET | `/staff/delivery/board` | Employee/manager | Read-only waiting orders, orders that cannot be scheduled (with reason) and vehicles; no names, addresses or payments |
+| GET | `/staff/orders` | Employee/manager | Read-only order list with the manager's filters (status, dates, paging, counts); search by order number or name only; order number, status, customer name, size and totals, never contact, address or payment data |
+| GET | `/staff/orders/<order_id>` | Employee/manager | Read-only detail: items, totals, progress and trip; no contact, address or payment data |
 
 The `/admin` prefix alone does not imply manager-only: the inventory/product
 routes above intentionally allow employees. Manifest application is manager-only.
@@ -149,3 +154,7 @@ The stop-list page reads the existing authorized trip API, sorts by saved
 stop sequence, and supports browser Print/Save as PDF and CSV download.
 CSV cells are quoted and leading spreadsheet formula markers are neutralized.
 There is no public manifest file endpoint or server-side export storage.
+
+## Rate limits and safety headers
+
+Failed sign-ins (per account and connection, and per connection), order look-ups that find nothing, and wrong passwords when changing a password or deleting an account are counted. After the limit (defaults 8, 30, 10 and 5 failures in 10 minutes) the answer is HTTP 429 with `error.code` `RATE_LIMITED`, `error.retry_after` (seconds) and a `Retry-After` header. Correct tries are never counted. Every answer carries `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and `Referrer-Policy`; account, cart, order, admin and staff answers carry `Cache-Control: no-store`. Passwords must be 8 to 128 characters.

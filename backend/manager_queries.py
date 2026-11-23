@@ -1,4 +1,3 @@
-"""Validated, bounded pagination shared by manager read endpoints."""
 import re
 
 from flask import request

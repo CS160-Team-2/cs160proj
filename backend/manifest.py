@@ -1,44 +1,22 @@
-"""Reading a delivery manifest, as a pure function with no database.
-
-A manifest is a CSV file a manager uploads when a delivery arrives:
-
-    manifest_id,product_name,quantity
-    DM-1001,"Organic Apples, 3 lb bag",24
-    DM-1001,Organic Broccoli Crown,30
-
-The manifest ID names the delivery. Every line of a file carries the same
-one, and the routes refuse an ID that was already applied.
-
-read_manifest() turns the file's bytes and the catalog into the manifest
-ID and the stock to add per product, plus every problem it found, each
-tied to its line in the file. It never guesses: a name must match one product exactly,
-ignoring capitals and extra spaces, or the line is a problem. With no
-I/O here, the same file and catalog always give the same answer, and
-test_manifest.py can check the rules without a database.
-
-The routes in routes/manifests.py look up the catalog, call this, and
-apply the result only when there are no problems at all.
-"""
-
 import csv
 import io
 import re
 from dataclasses import dataclass
 
-MAX_BYTES = 1_000_000          # about 1 MB
-MAX_LINES = 1000               # product lines, not counting the header
-MAX_QUANTITY = 100_000         # per product, after repeated lines are added up
+MAX_BYTES = 1_000_000
+MAX_LINES = 1000
+MAX_QUANTITY = 100_000
 REQUIRED_COLUMNS = ("manifest_id", "product_name", "quantity")
 
 WHOLE_NUMBER = re.compile(r"\d+")
-MANIFEST_ID = re.compile(r"[A-Z0-9][A-Z0-9._-]{0,63}")   # checked after capitalizing
+MANIFEST_ID = re.compile(r"[A-Z0-9][A-Z0-9._-]{0,63}")
 
 
 @dataclass
 class Manifest:
-    lines: list        # one per product: product_id, name, quantity, line_numbers, is_listed
-    problems: list     # {"line": n or None, "message": "..."}, in file order
-    manifest_id: str = None    # in capitals, so dm-1001 and DM-1001 are the same delivery
+    lines: list
+    problems: list
+    manifest_id: str = None
 
     @property
     def ok(self):
@@ -53,10 +31,9 @@ def _problem(line, message):
     return {"line": line, "message": message}
 
 
+# (line number, cells) for every row, or a problem if it is not a CSV text file.
 def _rows(raw):
-    """(line number, cells) for every row, or a problem if it is not a CSV text file."""
     try:
-        # utf-8-sig drops the byte order mark Excel adds to "CSV UTF-8" files.
         text = raw.decode("utf-8-sig")
         if "\x00" in text:
             raise ValueError
@@ -66,8 +43,8 @@ def _rows(raw):
         return None, _problem(None, "This is not a CSV text file. Save it as CSV (UTF-8) and upload it again.")
 
 
+# `catalog` is a list of dicts with product_id, name and is_listed.
 def read_manifest(raw, catalog):
-    """`catalog` is a list of dicts with product_id, name and is_listed."""
     if len(raw) > MAX_BYTES:
         return Manifest([], [_problem(None, "The file is larger than 1 MB.")])
 
@@ -96,7 +73,7 @@ def read_manifest(raw, catalog):
         by_name.setdefault(normalize(product["name"]), []).append(product)
 
     manifest_id = None
-    totals, problems = {}, []        # totals keeps the order products first appear in
+    totals, problems = {}, []
     for line, row in body:
         line_id = row[id_at].strip().upper() if id_at < len(row) else ""
         if not line_id:

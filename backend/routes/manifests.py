@@ -1,22 +1,3 @@
-"""Restocking from a delivery manifest. Managers only.
-
-    POST /api/admin/inventory/manifest/preview   multipart, field "file": what would change
-    POST /api/admin/inventory/manifest           multipart, field "file": apply it
-
-The file rules are in manifest.py. Preview never changes anything. Apply
-reads the file again itself rather than trusting an earlier preview, and
-saves every line in one transaction, or nothing at all: a manifest with
-any problem is refused whole. Each stock change goes into inventory_log
-like a manual adjustment, with the reason
-"Delivery manifest <manifest ID> (<filename>)", so it shows in the stock
-history.
-
-Every file carries a manifest ID, and an ID that was already applied is
-refused (delivery_manifests keeps each one), so one delivery cannot be
-counted twice. A repeat order with the same products is fine: it just has
-a new ID.
-"""
-
 import os
 
 from flask import Blueprint, request
@@ -34,7 +15,6 @@ def _upload():
     upload = request.files.get("file")
     if upload is None or not upload.filename:
         raise ApiError("Choose a CSV file to upload", 400, "MISSING_FILE")
-    # One byte past the limit is enough for read_manifest to refuse it.
     raw = upload.stream.read(MAX_BYTES + 1)
     return os.path.basename(upload.filename)[:255], raw
 
@@ -58,6 +38,7 @@ def _already_applied_error(previous):
                     "MANIFEST_ALREADY_APPLIED")
 
 
+# POST /api/admin/inventory/manifest/preview: Checks a delivery manifest and shows each product's stock now and after; saves nothing.
 @manifests_bp.post("/api/admin/inventory/manifest/preview")
 @require_role(*MANAGER)
 def preview_manifest():
@@ -85,6 +66,7 @@ def preview_manifest():
     )
 
 
+# POST /api/admin/inventory/manifest: Applies a good delivery manifest, adding all its stock in one step.
 @manifests_bp.post("/api/admin/inventory/manifest")
 @require_role(*MANAGER)
 def apply_manifest():
@@ -109,12 +91,10 @@ def apply_manifest():
                 "line_count, total_units) VALUES (%s, %s, %s, %s, %s)",
                 (result.manifest_id, filename, manager_id, len(result.lines), total_units))
         except IntegrityError:
-            # Another manager applied the same ID between our check and this insert.
             raise _already_applied_error(_applied_before(result.manifest_id)) from None
         manifest_id = cur.lastrowid
         reason = f"Delivery manifest {result.manifest_id} ({filename})"[:255]
 
-        # Lock rows in product order so two uploads at once cannot deadlock.
         for line in sorted(result.lines, key=lambda entry: entry["product_id"]):
             cur.execute("SELECT quantity_in_stock FROM inventory WHERE product_id = %s FOR UPDATE",
                         (line["product_id"],))

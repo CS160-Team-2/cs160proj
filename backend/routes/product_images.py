@@ -1,26 +1,9 @@
-"""Product pictures uploaded by staff.
-
-    POST   /api/admin/products/<id>/image   multipart form, field "image"; replaces the picture
-    DELETE /api/admin/products/<id>/image   removes it (the shop shows a grey placeholder)
-    GET    /api/product-images/<filename>   serves an uploaded picture, public
-
-The picture file is saved on the server, in backend/uploads/products (or
-PRODUCT_IMAGE_DIR), under a random name. The database stores only a
-short reference in products.image_key: "upload:<random name>". Products
-that ship with the app keep a plain name like "apple", which the
-frontend maps to a bundled picture, so both kinds work side by side.
-
-The file is judged by its first bytes, never by the name or type the
-browser claims, and only JPEG, PNG and WebP are accepted (not SVG, which
-can carry scripts). Files are limited to 5 MB.
-"""
-
 import os
 import re
 import uuid
 from pathlib import Path
 
-from flask import Blueprint, request, send_from_directory
+from flask import Blueprint, Response, request
 
 import db
 from common import STAFF, ApiError, ok, require_role
@@ -56,14 +39,16 @@ def _stored_filename(image_key):
     return None
 
 
-# Deletes an uploaded picture file when it is replaced or removed.
-def _delete_file(image_key):
+# Forgets an uploaded picture (its database row and any old file) when it is replaced or removed.
+def _delete_picture(image_key):
     name = _stored_filename(image_key)
     if name:
+        with db.transaction() as cur:
+            cur.execute("DELETE FROM product_pictures WHERE filename = %s", (name,))
         (UPLOAD_DIR / name).unlink(missing_ok=True)
 
 
-# Saves a staff member's picture for a product and points the product at it.
+# POST /api/admin/products/<int:product_id>/image: Saves a staff member's picture for a product and points the product at it.
 @product_images_bp.post("/api/admin/products/<int:product_id>/image")
 @require_role(*STAFF)
 def upload_image(product_id):
@@ -79,39 +64,46 @@ def upload_image(product_id):
     if kind is None:
         raise ApiError("The picture must be a JPEG, PNG or WebP file", 415, "UNSUPPORTED_IMAGE")
 
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     name = f"{uuid.uuid4().hex}.{kind}"
-    (UPLOAD_DIR / name).write_bytes(data)
-    try:
-        with db.transaction() as cur:
-            cur.execute("UPDATE products SET image_key = %s WHERE product_id = %s",
-                        (f"{KEY_PREFIX}{name}", product_id))
-    except Exception:
-        (UPLOAD_DIR / name).unlink(missing_ok=True)
-        raise
+    with db.transaction() as cur:
+        cur.execute("INSERT INTO product_pictures (filename, mime_type, data) VALUES (%s, %s, %s)",
+                    (name, MIME_TYPES[kind], data))
+        cur.execute("UPDATE products SET image_key = %s WHERE product_id = %s",
+                    (f"{KEY_PREFIX}{name}", product_id))
 
-    _delete_file(product["image_key"])
+    _delete_picture(product["image_key"])
     return ok(product=inventory_json(_load(product_id)))
 
 
-# Removes a product's picture (the shop then shows a placeholder).
+# DELETE /api/admin/products/<int:product_id>/image: Removes a product's picture (the shop then shows a placeholder).
 @product_images_bp.delete("/api/admin/products/<int:product_id>/image")
 @require_role(*STAFF)
 def remove_image(product_id):
     product = _load(product_id)
     with db.transaction() as cur:
         cur.execute("UPDATE products SET image_key = NULL WHERE product_id = %s", (product_id,))
-    _delete_file(product["image_key"])
+    _delete_picture(product["image_key"])
     return ok(product=inventory_json(_load(product_id)))
 
 
-# Serves an uploaded picture to the shop.
+# Finds a picture in the database; one that is still only a file on this computer is copied in first.
+def _picture(filename, kind):
+    row = db.query_one("SELECT mime_type, data FROM product_pictures WHERE filename = %s", (filename,))
+    if row is None and (UPLOAD_DIR / filename).is_file():
+        data = (UPLOAD_DIR / filename).read_bytes()
+        with db.transaction() as cur:
+            cur.execute("INSERT IGNORE INTO product_pictures (filename, mime_type, data) VALUES (%s, %s, %s)",
+                        (filename, MIME_TYPES[kind], data))
+        row = {"mime_type": MIME_TYPES[kind], "data": data}
+    return row
+
+
+# GET /api/product-images/<filename>: Serves an uploaded picture to the shop.
 @product_images_bp.get("/api/product-images/<filename>")
 def serve_image(filename):
     match = FILENAME_PATTERN.match(filename)
-    if not match:
+    row = _picture(filename, match.group(1)) if match else None
+    if row is None:
         raise ApiError("No such picture", 404, "NOT_FOUND")
-    response = send_from_directory(UPLOAD_DIR, filename, mimetype=MIME_TYPES[match.group(1)],
-                                   max_age=31536000)
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    return response
+    return Response(row["data"], mimetype=row["mime_type"], headers={
+        "Cache-Control": "public, max-age=31536000, immutable", "X-Content-Type-Options": "nosniff"})

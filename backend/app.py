@@ -1,39 +1,12 @@
-"""OFS API server.
-
-Run:  python app.py      (listens on http://localhost:5001)
-
-Port 5001, not the Flask default of 5000, because macOS Monterey and
-later run AirPlay Receiver on port 5000.
-
-The endpoints follow the API design (Part II, section V). Each area of
-it lives in its own module under routes/:
-
-    routes/auth.py           sign-in, own account, staff accounts      tables I, II
-    routes/addresses.py      delivery addresses                        table III
-    routes/catalog.py        products and categories                   table IV
-    routes/cart.py           shopping cart                             table V
-    routes/orders.py         checkout, order history, tracking         table VI
-    routes/admin_orders.py   manager order monitor                     table VII
-    routes/inventory.py      products and stock for staff              table VIII
-    routes/delivery.py       trips, routes, dispatch                   table IX
-    routes/fleet.py          vehicle callbacks                         table X
-
-Conventions, from the API design:
-  - JSON in and out. Success: {"ok": true, ...}. Failure:
-    {"ok": false, "error": {"code": "...", "message": "..."}}.
-  - Money and weight are sent as strings ("38.94"), never JSON numbers.
-  - Sign-in is a session cookie. The role is checked on the server on
-    every request.
-"""
-
 import os
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
-from flask import Flask
+from flask import Flask, request
 from flask.json.provider import DefaultJSONProvider
 from flask_cors import CORS
 from werkzeug.exceptions import HTTPException
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 import db
 from services.vehicle import start_recovery
@@ -54,12 +27,12 @@ from routes.orders import orders_bp
 from routes.product_images import product_images_bp
 
 DEV_SECRET_KEY = "dev-only-secret-change-me"
+PRIVATE_PREFIXES = ("/api/auth", "/api/users", "/api/cart", "/api/checkout", "/api/orders", "/api/payments",
+                    "/api/admin", "/api/staff")
 
 
+# Turns decimals into strings and dates into ISO text for JSON.
 class OfsJSONProvider(DefaultJSONProvider):
-    """Decimals become strings so no precision is lost on the way to the
-    browser, which only displays them and never does arithmetic on them.
-    Dates become ISO 8601 strings, which JavaScript's Date understands."""
 
     @staticmethod
     def default(value):
@@ -75,24 +48,19 @@ def create_app():
     app.json = OfsJSONProvider(app)
     app.json.sort_keys = False
 
-    # Signs the session cookie. Anyone who knows it can forge a sign-in,
-    # so anything other than a laptop must set its own SECRET_KEY.
     app.secret_key = os.environ.get("SECRET_KEY") or DEV_SECRET_KEY
     if app.secret_key == DEV_SECRET_KEY:
         app.logger.warning("SECRET_KEY is not set; using the development key")
+        if os.environ.get("SESSION_COOKIE_SECURE") == "1":
+            raise RuntimeError("SECRET_KEY must be set when SESSION_COOKIE_SECURE=1 (HTTPS). See SETUP.md, Security.")
     app.config.update(
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE") == "1",
         MAX_CONTENT_LENGTH=6 * 1024 * 1024,
-        # How long a shopper's cart and sign-in last after their last visit.
-        # Each visit pushes the expiry forward. Staff sessions never use it.
         PERMANENT_SESSION_LIFETIME=timedelta(days=int(os.environ.get("CART_SESSION_DAYS", "14"))),
     )
 
-    # In development React runs on a different port, so the browser treats
-    # it as a different origin. supports_credentials lets the session cookie
-    # through. Behind Apache (see deploy/) both share one origin.
     frontend_origin = os.environ.get("FRONTEND_ORIGIN", "http://localhost:5173")
     CORS(app, resources={r"/api/*": {"origins": [frontend_origin]}}, supports_credentials=True)
 
@@ -101,6 +69,7 @@ def create_app():
                       manifests_bp, delivery_bp, fleet_bp, guest_bp, product_images_bp):
         app.register_blueprint(blueprint)
 
+    # GET /api/health: Reports whether the API and its database are up.
     @app.get("/api/health")
     def health():
         try:
@@ -110,11 +79,23 @@ def create_app():
         return ok(service="OFS API", database="up" if version else "down",
                   mysql_version=version)
 
+    proxies = int(os.environ.get("TRUSTED_PROXIES", "0") or 0)
+    if proxies > 0:
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=proxies)
+
+    @app.after_request
+    def safety_headers(response):
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        if request.path.startswith(PRIVATE_PREFIXES):
+            response.headers.setdefault("Cache-Control", "no-store")
+        return response
+
     app.register_error_handler(ApiError, error_response)
 
     @app.errorhandler(HTTPException)
     def http_error(exc):
-        # 404 for unknown paths, 405 for wrong methods, and so on, as JSON.
         code = (exc.name or "ERROR").upper().replace(" ", "_")
         return error_response(ApiError(exc.description or exc.name, exc.code, code))
 

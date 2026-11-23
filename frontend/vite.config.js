@@ -22,18 +22,17 @@ export default defineConfig({
     // },
   },
 
+   // Unit tests live in frontend/test (same folders as src); browser tests are in frontend/browser_test.
    test: {  environment: 'jsdom',
             globals: true,
-            setupFiles: './src/setupTests.js',
+            include: ['test/**/*.test.{js,jsx}'],
+            setupFiles: './test/setupTests.js',
             css: false,
             coverage: { provider: 'v8',
                         reporter: ['text', 'html', 'lcov'],
                         reportsDirectory: './coverage',
                         include: ['src/**/*.{js,jsx}'],
-                        exclude: ['src/main.jsx',
-                                  'src/setupTests.js',
-                                  'src/test/**',
-                                  'src/**/*.test.{js,jsx}',],
+                        exclude: ['src/main.jsx'],
                         },
            },
 })

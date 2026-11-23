@@ -16,6 +16,7 @@ Follow the parts in order. Each ends with a check — if the check fails, stop a
 | **MySQL Workbench** | 8.0.36 or newer | Managing the database visually |
 | **Git** | any recent | Source control |
 | **Docker** | any recent | Optional. Only for the Docker test database in 2.4 |
+| **Chrome** | any recent | Optional. Only for the browser tests in Part 3 |
 
 Everything else installs from `requirements.txt` and `package.json`.
 
@@ -96,13 +97,13 @@ The same on both platforms.
 **2.2 Run the setup script**
 
 - **File → Open SQL Script…**
-- Choose `backend/schema.sql` from the repository.
+- Choose `backend/schema/schema.sql` from the repository.
 - Click the **⚡ lightning-bolt** button (*Execute all*), or press **Ctrl+Shift+Enter** / **⌘⇧Enter**.
 
 Prefer the command line? From the repository root, as root:
 
 ```bash
-mysql -u root -p < backend/schema.sql
+mysql -u root -p < backend/schema/schema.sql
 ```
 
 On macOS the `mysql` program is at `/usr/local/mysql/bin/mysql` if it is not on your PATH.
@@ -207,7 +208,7 @@ The `.env` defaults match what `schema.sql` created, so no edits are needed unle
 pytest -q
 ```
 
-Every test should pass (about 40 seconds). The tests use their own `ofs_test` database, which they rebuild before each test, so they never touch the data in `ofs`. They need MySQL running and `schema.sql` run once.
+Every test should pass (768 tests, about 3 minutes). The backend tests are in `backend/test/`. They use their own `ofs_test` database, which they rebuild before each test, so they never touch the data in `ofs`. They need MySQL running and `schema.sql` run once.
 
 **Check 2 — the API runs and reaches MySQL:**
 
@@ -242,6 +243,24 @@ Vite prints `Local: http://localhost:5173/`. Open it, using `localhost` and not 
 
 Do **not** run `npm install` with `sudo` on macOS. If you get permission errors, see Troubleshooting #7.
 
+**Check — the frontend tests pass** (in a new terminal, or stop Vite first):
+
+```bash
+cd frontend
+npm run test:run
+```
+
+All 321 tests should pass (about 20 seconds). They are in `frontend/test/`, in the same folders as `frontend/src`.
+
+**Optional — the browser tests.** These drive a real Chrome through the whole site. With Flask and Vite stopped (the tests start their own) and the demo data in place:
+
+```bash
+cd frontend
+E2E_CHANNEL=chrome npm run e2e
+```
+
+59 tests pass (4 more are skipped unless you turn on the order tests; see the README). They take about 2 minutes. They leave your data as they found it. The tests are in `frontend/browser_test/`.
+
 ---
 
 ## Part 5 — Verify the whole system
@@ -254,15 +273,15 @@ Created by `schema.sql`, for local testing only.
 
 | Role | Email | Password | After signing in |
 |---|---|---|---|
-| Customer | `customer@ofs.test` | `customer-pass-1` | Back to the shop; **My orders** in the profile menu |
+| Customer | `customer@ofs.test` | `customer-pass-1` | Back to the shop; **Profile** and **Orders** |
 | Employee | `employee@ofs.test` | `employee-pass-1` | The inventory console at `/inventory` |
-| Manager | `manager@ofs.test` | `manager-pass-1` | The inventory console at `/inventory` |
+| Manager | `manager@ofs.test` | `manager-pass-1` | The manager order monitor at `/manager` |
 
-Everyone signs in on the same page (`/login`) and the role decides where they land. The public sign-up page only ever creates customers; staff accounts are created by a manager through the API.
+Everyone signs in on the same page (`/login`) and the role decides where they land. The public sign-up page only ever creates customers; staff accounts are created by a manager (the **Staff** page).
 
 ### Check the customer path
 
-1. **Browse.** The home page shows featured and most sold products with pictures. The Products page filters by category and price, searches by name, and sorts. Peaches and raspberries show **Unavailable**.
+1. **Browse.** The home page shows featured and most sold products. The Products page filters by category and price, searches by name or by product number (the number is shown under each product name), and sorts. Peaches and raspberries show **Unavailable**.
 2. **Add to cart.** Open a product, set a quantity and press *Add to cart*. The cart count in the header goes up. This works without signing in.
 3. **Check the 20 lb delivery rule.** Add **6** bags of apples (3.00 lb each) and **1** bunch of bananas (2.00 lb). The cart must show:
 
@@ -271,30 +290,63 @@ Everyone signs in on the same page (`/login`) and the role decides where they la
    Delivery       $10.00        ← not Free
    ```
 
-   Exactly 20.00 lb is charged. If it shows Free, the threshold uses `<=` where it should use `<`. With **5** bags of apples and 1 bunch of bananas (17.00 lb) delivery is Free.
-4. **Check out as a guest.** Press checkout without signing in. Enter a name, email, phone and a delivery address (for example `1 Washington Sq`, `San Jose`, `CA`, `95192`), then pay with card `4242 4242 4242 4242`, any future expiry and any 3-digit code. You land on **Orders** with an order number and status.
-5. **Track a guest order later.** Open the profile menu, choose **Track orders**, and enter the order number plus the email you used.
-6. **Check out signed in.** Sign in as the demo customer, add something, and check out again. The saved name and address are filled in, and the order appears under **My orders**.
+   Exactly 20.00 lb is charged. With **5** bags of apples and 1 bunch of bananas (17.00 lb) delivery is Free. Under the totals the cart says how far the order is from the line (for example "so 3.00 lb more would add the charge").
+4. **Check out as a guest.** Press checkout without signing in. Enter a name, email, phone and a delivery address within 25 miles of San Jose (for example `1 Washington Sq`, `San Jose`, `CA`, `95192`), then pay with card `4242 4242 4242 4242`, any future expiry and any 3-digit code. You land on **Orders** with your order number. With a live map provider (see Optional: live mapping) a made-up address such as `123 Fake Dr` or one in San Francisco is refused with a clear message; with the offline map any address with a house number is accepted.
+5. **Track a guest order later.** Choose **Track** in the top bar and enter the order number plus the email you used. (On a phone, **Track** and **Orders** are in the profile menu.)
+6. **Check out signed in.** Sign in as the demo customer, add something, and check out again. The saved name and address are filled in, and the order appears under **Orders**. Ticking **Remember me** keeps you signed in for 14 days.
 7. **Declined card.** Pay with `4000 0000 0000 0002`. You stay on checkout with an error, and the cart is unchanged.
 
-### Check the staff path
+### Check the employee path
 
-1. Sign out, then sign in as `employee@ofs.test`. You land on the inventory console.
-2. Search for a product, then change its stock with a number such as `10` or `-3`. Stock cannot go below zero.
-3. Press **Add product** and fill in name, price and weight (weight is required). Choose a picture (JPEG, PNG or WebP, up to 5 MB) to upload one. A product without a picture shows a grey placeholder in the shop.
-4. Open the shop and check the new product and its picture appear. Unlisting a product hides it.
+1. Sign out, then sign in as `employee@ofs.test`. You land on the inventory console. The profile menu shows only staff pages: **Inventory**, **Customer orders** and **Delivery tracking**.
+2. Search for a product, or filter by availability or category.
+3. Change a product's stock with a number such as `10` or `-3` and choose a **reason** (it is required). Press **History** on the product to see who changed what, when and why. Stock cannot go below zero.
+4. Change a product's **low-stock level** and press Save; the LOW flag follows it.
+5. Press **Add product** and fill in name, category, price and weight (weight is required). Choose a picture (JPEG, PNG or WebP, up to 5 MB) to upload one. Open the shop and check the new product appears. **Unlist** hides a product but keeps it in the records.
+6. Open **Customer orders**: every order with its status, read-only. Open **Delivery tracking**: the orders waiting for a trip, the vehicles, and the trips with their routes. Employees cannot open the manager pages or upload manifests.
 
-Where product pictures live: see [Product pictures](#product-pictures).
+### Check the manager path
 
----
+1. Sign in as `manager@ofs.test`. The manager order monitor opens. Find an order, open it to see its items, address and payment, and press **Mark ready for delivery**.
+2. On **Delivery**, tick the waiting order, pick a vehicle (each carries at most 10 orders and 200 lb) and **Create trip**, then **Dispatch**. With `VEHICLE_SIMULATION_SECONDS=20` the vehicle delivers one stop every 20 seconds. Open the customer's tracking page to watch it.
+3. On **Inventory**, under **Delivery manifest**, upload `examples/delivery-manifests/delivery-good.csv`. The preview shows each product's stock now and after (peaches and raspberries go from 0 back into stock); press **Apply**. Then upload `delivery-with-problems.csv`: every problem is listed by line and nothing is saved. Uploading the good file again is refused as already applied.
+4. Look at **Staff** (add or deactivate an employee), **Problems** (declined payments and orders that could not be scheduled) and **Vehicles**.
+
+Applying a manifest, ordering and dispatching change your local data. To put the demo data back, run `python backend/reset_db.py` from the repository root with the virtual environment active (no root password needed).
+
+## Security and HTTPS
+
+What the app already does: passwords are stored hashed, every database query is parameterised (so text such as `' OR '1'='1` is only text), the sign-in cookie is HTTP-only and same-site, answers carry `X-Content-Type-Options`, `X-Frame-Options` and `Referrer-Policy` headers, and account, cart and order answers are never cached by the browser.
+
+**Rate limits.** Wrong passwords at sign-in, order look-ups that find nothing, and wrong passwords when changing a password or deleting an account are counted; after too many the answer is "Too many … Please wait N minutes" (HTTP 429). Correct tries are never counted. The numbers are in `backend/.env.example`. The counts are kept in the Flask process's memory, so a restart clears them. Behind Apache, set `TRUSTED_PROXIES=1` so each visitor is counted separately.
+
+**Passwords** must be 8 to 128 characters.
+
+**Putting the site on HTTPS** (a server other than your laptop):
+1. Serve the site over HTTPS (see `deploy/APACHE.md`).
+2. In `backend/.env` set your own long random `SECRET_KEY`, and `SESSION_COOKIE_SECURE=1`. Flask refuses to start with `SESSION_COOKIE_SECURE=1` and the development key.
+3. Set `TRUSTED_PROXIES=1` if Apache sits in front of Flask, and `FRONTEND_ORIGIN` to the site's address.
+4. Use live (not test) payment keys only after the team agrees; this project is built for test keys.
+
+## Running behind Apache (production-like)
+
+The assignment recommends Apache as the web server. In production one Apache serves the built React site and forwards `/api` to Flask, so the browser sees a single address and no CORS is involved. The full step-by-step guide, with Windows (XAMPP) and macOS instructions, is [`deploy/APACHE.md`](deploy/APACHE.md); the configuration is [`deploy/ofs.conf`](deploy/ofs.conf).
+
+In short:
+
+1. Build the site for the same origin: `cd frontend`, then `VITE_API_BASE= npm run build` (PowerShell: `$env:VITE_API_BASE=""; npm run build`).
+2. Enable Apache's `rewrite`, `proxy` and `proxy_http` modules, and publish the build and the virtual host (`deploy/publish.sh` on macOS copies the build into a folder Apache may read; it asks for your administrator password).
+3. Keep Flask running on port 5001 and open `http://localhost:8080`.
+4. In `backend/.env` add `TRUSTED_PROXIES=1` so the rate limits see each visitor.
+
+The configuration was tested with Apache 2.4.66: the site is served, page addresses such as `/products` come back from the app, `/api` reaches Flask (39 products), and sign-in, cart and checkout work through the one address. A check you can repeat: `curl http://localhost:8080/api/health` should return `"ok": true`.
 
 ## Product pictures
 
-Employees upload product pictures in the inventory console. The picture file is saved on the server in `backend/uploads/products/`, and the database stores only a short reference (`upload:<random name>.jpg`) in `products.image_key`. The 39 seeded products keep the pictures bundled in `frontend/src/assets`.
+Employees upload product pictures in the inventory console. The picture is saved **in the database** (table `product_pictures`), and `products.image_key` holds a short reference (`upload:<random name>.jpg`). The 39 seeded products keep the pictures bundled in `frontend/src/assets`.
 
-- `backend/uploads/` is ignored by Git, so uploaded pictures are **not** shared through the repository. Each machine has its own.
-- To store pictures somewhere else, set `PRODUCT_IMAGE_DIR` in `backend/.env`.
-- When moving to another server, copy the `uploads` folder along with the database.
+- Because the pictures are in the database, they move with it: a backup or a copy of the database carries them too. Nothing else needs copying.
+- If your database was made before this change, run `backend/schema/updates/add_product_pictures.sql` once (see "Updating your database after a pull"). Pictures that are still files in `backend/uploads/products/` keep working: each one is copied into the database the first time it is shown.
 - The server accepts only real JPEG, PNG and WebP files up to 5 MB.
 
 ---
@@ -477,69 +529,55 @@ Two terminals, every time (a third for `pytest`, `curl` and git):
 
 Run them from the repository root. MySQL runs as a background service and starts with your computer, so you do not start it by hand.
 
-**After pulling new code**, run `npm install` in `frontend/` and `pip install -r requirements.txt` (venv active) if `package.json` or `requirements.txt` changed. If `backend/schema.sql` changed, update your database as in [Updating your database after a pull](#updating-your-database-after-a-pull).
+**After pulling new code**, run `npm install` in `frontend/` and `pip install -r requirements.txt` (venv active) if `package.json` or `requirements.txt` changed. If `backend/schema/schema.sql` changed, update your database as in [Updating your database after a pull](#updating-your-database-after-a-pull).
 
 ## Updating your database after a pull
 
-**In short:** everyone has their own database on their own computer, so when a pull changes `backend/schema.sql`, each person updates their own copy. You can either rebuild it from scratch, which is simplest but erases your local data, or add only what changed, which keeps your data. The automated tests need nothing from you: they rebuild their own test database every run.
+**In short:** everyone has their own database on their own computer, so when a pull changes `backend/schema/schema.sql`, each person updates their own copy. You have two choices: rebuild from scratch, which is simplest but erases your local data, or run the small update scripts, which keep it.
 
-### The current change: delivery manifests
-
-The delivery manifest upload on the Inventory page needs a new table, `delivery_manifests`. If your database does not have it, the Inventory page still works, but uploading a manifest fails with an error about a missing `delivery_manifests` table. Pick **one** of the two options below.
-
-**Option A: rebuild from scratch (erases your local data)**
-
-This resets `ofs` to the demo data. Orders, accounts you registered and products you added or edited are lost. Run `backend/schema.sql` as root exactly as in [Part 2](#part-2--set-up-the-database-in-mysql-workbench), or from the repository root:
+**Option A: rebuild from scratch (erases your local data).** This resets `ofs` to the demo data; orders, accounts you registered and products you added or edited are lost.
 
 ```bash
-mysql -u root -p < backend/schema.sql
+python backend/reset_db.py                     # no root password needed; run from the repository root, venv active
 ```
 
-**Option B: add only the new table (keeps your local data)**
-
-The file `backend/updates/add_delivery_manifests.sql` adds the table and changes nothing else. It is safe to run more than once.
-
-*With MySQL Workbench:* connect as root, choose **File → Open SQL Script**, pick `backend/updates/add_delivery_manifests.sql`, and click the lightning bolt to run it.
-
-*With the terminal (local MySQL on port 3306),* from the repository root:
+or run `backend/schema/schema.sql` as root exactly as in [Part 2](#part-2--set-up-the-database-in-mysql-workbench):
 
 ```bash
-mysql -u root -p < backend/updates/add_delivery_manifests.sql
+mysql -u root -p < backend/schema/schema.sql
 ```
 
-*If you use the Docker database from Part 2.4 as your `ofs` database,* start it first, then from the repository root:
+**Option B: run the update scripts (keeps your local data).** Each script is in `backend/schema/updates/`, is safe to run more than once, and only adds what is missing. Run the ones your database lacks, **in this order**:
+
+| Order | Script | What it adds | The error you get without it |
+|---|---|---|---|
+| 1 | `add_delivery_manifests.sql` | The `delivery_manifests` table (manager restocking from a CSV) | Uploading a manifest fails: missing table `delivery_manifests` |
+| 2 | `add_manifest_ids.sql` | A manifest ID on each manifest; an ID can be applied once | Uploading a manifest fails: unknown column `supplier_manifest_id` |
+| 3 | `add_product_pictures.sql` | The `product_pictures` table (uploaded pictures now live in the database) | Uploading a product picture fails: unknown table `product_pictures` |
+
+Run a script with MySQL Workbench (**File → Open SQL Script**, pick the file, press the lightning bolt) or from the repository root:
 
 ```bash
-docker exec -i ofs-mysql-test mysql -ucs160team2 -pteam2_password < backend/updates/add_delivery_manifests.sql
-```
-
-### The current change: manifest IDs
-
-Every delivery manifest now has its own ID in a `manifest_id` column, and an ID can only be applied once. If your database is missing this, uploading a manifest fails with an error about an unknown `supplier_manifest_id` column. Rebuilding from scratch (Option A above) fixes it, or run this update, which keeps your local data and is safe to run more than once. Run `add_delivery_manifests.sql` first if you have never run it.
-
-*With MySQL Workbench:* connect as root, choose **File → Open SQL Script**, pick `backend/updates/add_manifest_ids.sql`, and click the lightning bolt to run it.
-
-*With the terminal (local MySQL on port 3306),* from the repository root:
-
-```bash
-mysql -u root -p < backend/updates/add_manifest_ids.sql
+mysql -u root -p < backend/schema/updates/add_product_pictures.sql
 ```
 
 *If you use the Docker database from Part 2.4 as your `ofs` database,* start it first, then from the repository root:
 
 ```bash
-docker exec -i ofs-mysql-test mysql -ucs160team2 -pteam2_password < backend/updates/add_manifest_ids.sql
+docker exec -i ofs-mysql-test mysql -ucs160team2 -pteam2_password < backend/schema/updates/add_product_pictures.sql
 ```
 
 MySQL may warn that using a password on the command line is insecure. That is expected for this shared demo password and can be ignored.
 
-**Check that it worked:** restart Flask, sign in as the manager (`manager@ofs.test`), open **Inventory**, and choose a CSV file under **Delivery manifest**. You should see a preview table, not an error. A CSV file needs a header line with `product_name` and `quantity`, and any product name that contains a comma must be in double quotes:
+**Check that it worked:** restart Flask, sign in as the manager (`manager@ofs.test`), open **Inventory** and choose a CSV file under **Delivery manifest**: you should see a preview table, not an error. A manifest needs the columns `manifest_id`, `product_name` and `quantity`, every line carries the same manifest ID, and any product name that contains a comma must be in double quotes:
 
 ```text
-product_name,quantity
-"Organic Apples, 3 lb bag",24
-Organic Broccoli Crown,30
+manifest_id,product_name,quantity
+DM-1001,"Organic Apples, 3 lb bag",24
+DM-1001,Organic Broccoli Crown,30
 ```
+
+Sample files are in `examples/delivery-manifests/`. Pictures that were uploaded before the change and are still files in `backend/uploads/products/` keep working: each is copied into the database the first time it is shown.
 
 ## Configuration reference
 
@@ -551,18 +589,26 @@ Backend settings go in `backend/.env`; frontend settings in `frontend/.env`. Bot
 | `FLASK_PORT` | `5001` | Port Flask listens on |
 | `FRONTEND_ORIGIN` | `http://localhost:5173` | The only address allowed to call the API |
 | `SECRET_KEY` | development key | Signs the sign-in cookie. Set your own on any shared server |
+| `SESSION_COOKIE_SECURE` | off | `1` on HTTPS: the sign-in cookie is sent only over HTTPS (needs your own `SECRET_KEY`) |
+| `TRUSTED_PROXIES` | `0` | `1` behind Apache, so rate limits count each visitor |
+| `RATE_LIMIT_ENABLED` and `RATE_LIMIT_*` | on | Limits on failed sign-ins and look-ups; see Security and HTTPS |
 | `CART_SESSION_DAYS` | `14` | How many days a guest's cart and a customer's sign-in last after their last visit. Each visit extends it. Staff sessions end with the browser |
 | `PAYMENT_GATEWAY` | `fake` | `fake` or `stripe` |
-| `STRIPE_SECRET_KEY` | none | A `sk_test_` key, used when the gateway is `stripe` |
+| `STRIPE_SECRET_KEY`, `STRIPE_CURRENCY`, `STRIPE_ALLOW_LIVE` | none, `usd`, `0` | A `sk_test_` key, used when the gateway is `stripe`; live keys are refused unless `STRIPE_ALLOW_LIVE=1` |
 | `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | none | PayPal sandbox app keys. Both set means checkout offers PayPal |
-| `PAYPAL_ENV`, `PAYPAL_CURRENCY`, `PAYPAL_ENABLED` | `sandbox`, `USD`, `1` | Sandbox or live (live also needs `PAYPAL_ALLOW_LIVE=1`), currency, and an off switch (`0`) |
+| `PAYPAL_ENV`, `PAYPAL_CURRENCY`, `PAYPAL_ENABLED`, `PAYPAL_ALLOW_LIVE` | `sandbox`, `USD`, `1`, `0` | Sandbox or live (live also needs `PAYPAL_ALLOW_LIVE=1`), currency, and an off switch (`0`) |
 | `MAP_PROVIDER` | `fake` | `fake`, `mapbox` or `google` |
 | `MAPBOX_ACCESS_TOKEN`, `GOOGLE_MAPS_API_KEY` | none | Server-side map keys |
+| `STORE_LATITUDE`, `STORE_LONGITUDE` | San Jose (SJSU) | Where the store is, for routes and the delivery area |
+| `SERVICE_RADIUS_MILES` | `25` | Farthest an address may be from the store, in straight-line miles |
 | `VEHICLE_LINK`, `VEHICLE_SIMULATION_SECONDS` | `simulated`, `20` | The simulated vehicle completes one stop every N seconds after dispatch. `0` means stops are only completed when reported |
 | `TAX_RATE` | `0.09375` | Sales tax rate |
-| `PRODUCT_IMAGE_DIR` | `backend/uploads/products` | Where uploaded pictures are saved |
+| `PRODUCT_IMAGE_DIR` | `backend/uploads/products` | Only for old pictures that are still files; they are copied into the database when first shown |
 | `VITE_API_BASE` (frontend) | `http://localhost:5001` | Backend address. Empty means the same server, as in the Apache deployment |
 | `VITE_MAPBOX_ACCESS_TOKEN` (frontend) | none | A Mapbox **public** `pk.` token for the interactive delivery map |
+| `VITE_STRIPE_PUBLISHABLE_KEY` (frontend) | none | A Stripe **publishable** `pk_test_` key for Stripe's own card field; empty keeps the built-in test form |
+
+`backend/.env.example` and `frontend/.env.example` list every setting with a one-line description.
 
 ---
 
@@ -620,16 +666,31 @@ The "Add python.exe to PATH" box was missed during install. Re-run the installer
 New frontend packages were added. Run `npm install` in `frontend/`, then start Vite again.
 
 **14. After a pull: `Unknown column 'is_guest'` or another database error**
-The database layout changed. Run `backend/schema.sql` again as root (Part 2). This resets `ofs` to the seed data. To keep your data instead, see [Updating your database after a pull](#updating-your-database-after-a-pull); for example, an error about a missing `delivery_manifests` table is fixed there with Option B.
+The database layout changed. Run `backend/schema/schema.sql` again as root (Part 2). This resets `ofs` to the seed data. To keep your data instead, see [Updating your database after a pull](#updating-your-database-after-a-pull); for example, an error about a missing `delivery_manifests` table is fixed there with Option B.
 
 **15. The shop says "Cannot reach the store right now"**
 Flask is not running, or Vite is not on port 5173 (see #6 and #11). Check <http://localhost:5001/api/health> in a browser.
 
 **16. An uploaded product picture does not show**
-Check that Flask is running and that the file exists in `backend/uploads/products/`. Pictures are saved on each machine, not in Git, so a picture uploaded on one laptop does not appear on another.
+Check that Flask is running and that your database has the `product_pictures` table (run `backend/schema/updates/add_product_pictures.sql` if not). Pictures are stored in the database, so they appear on any machine that uses the same database; a laptop with its own local database only shows the pictures uploaded to that database.
 
 **17. Checkout with Stripe fails or every card is refused**
 See *If something goes wrong* under Stripe test payments above. Only Stripe's test card numbers work while Stripe is on. Set `PAYMENT_GATEWAY=fake` to go back to the offline gateway.
+
+**18. "Too many failed sign-in attempts … Please wait N minutes"**
+The rate limit for wrong passwords was reached (8 wrong tries for one account, or 30 from one connection, in 10 minutes). Wait the time shown, or restart Flask, which clears the counts. While testing you can set `RATE_LIMIT_ENABLED=0` in `backend/.env`. See Security and HTTPS.
+
+**19. "We could not find that address" or "we only deliver within 25 miles"**
+With a live map provider, the address must be a real one close to the San Jose store. Check the spelling, the city and the ZIP code. With `MAP_PROVIDER=fake` any address with a house number is accepted.
+
+**20. Flask will not start: "SECRET_KEY must be set when SESSION_COOKIE_SECURE=1"**
+`SESSION_COOKIE_SECURE=1` is for HTTPS sites and needs your own long random `SECRET_KEY` in `backend/.env`. On your laptop, remove `SESSION_COOKIE_SECURE` from `.env`.
+
+**21. Uploading a delivery manifest fails**
+Run the update scripts your database is missing (see Updating your database after a pull). If the preview lists problems instead, fix the lines it names; every line needs the same `manifest_id`, and an ID that was already applied is refused.
+
+**22. The Apache site shows the page but no data, or a 403**
+`/api` is not being forwarded to Flask, or Apache cannot read the folder. See the Troubleshooting section of [`deploy/APACHE.md`](deploy/APACHE.md); on macOS use `deploy/publish.sh` rather than pointing Apache at a folder inside Desktop.
 
 ---
 
@@ -651,5 +712,11 @@ See *If something goes wrong* under Stripe test payments above. Only Stripe's te
 | `vite`, `@vitejs/plugin-react` | Dev server and build tool |
 | `tailwindcss`, `@tailwindcss/vite` | Styling; v4 is a Vite plugin with no config file |
 | `vitest`, `jsdom`, `@testing-library/*` | Frontend test runner and component testing tools |
+| `@playwright/test` | Real-browser tests in `frontend/browser_test` |
+| `@stripe/stripe-js`, `@stripe/react-stripe-js` | Stripe's own card field and wallet buttons |
+| `@paypal/react-paypal-js` | PayPal's button |
 
-Stripe needs no package: the backend talks to Stripe's API directly.
+The backend needs no package for Stripe, PayPal, Mapbox or Google: it calls their web APIs directly. The frontend uses `@stripe/stripe-js` and `@stripe/react-stripe-js` (Stripe's card field), `@paypal/react-paypal-js` (PayPal's button) and `@playwright/test` (the real-browser tests).
+
+Why PyMySQL and not `mysqlclient`: `mysqlclient` is a C extension that needs a compiler and the MySQL client headers (Visual C++ Build Tools on Windows, `brew install mysql-client` on Apple Silicon). PyMySQL installs the same way everywhere. Use Python 3.11 or 3.12, not 3.13: some packages have no prebuilt files for 3.13 yet, which forces a build from source.
+

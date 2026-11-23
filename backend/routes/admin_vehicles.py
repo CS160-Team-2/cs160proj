@@ -1,4 +1,3 @@
-"""M9: manage the simulated fleet without exposing vehicle credentials."""
 import hashlib
 import secrets
 from decimal import Decimal
@@ -49,8 +48,6 @@ def _safe_vehicle(cur, vehicle_id):
 
 
 def _lock_fleet(cur):
-    # Trip creation locks available vehicles too. Serialize mutations against
-    # that choice so a trip cannot be assigned stale limits or a retired robot.
     cur.execute('SELECT vehicle_id FROM vehicles ORDER BY vehicle_id FOR UPDATE')
     return {row['vehicle_id'] for row in cur.fetchall()}
 
@@ -64,6 +61,7 @@ def _check_name(cur, values, vehicle_id=0):
         raise ApiError('A vehicle with that name already exists', 409, 'VEHICLE_NAME_TAKEN')
 
 
+# POST /api/admin/delivery/vehicles: Adds a vehicle with its limits.
 @admin_vehicles_bp.post('/api/admin/delivery/vehicles')
 @require_role(*MANAGER)
 def create_vehicle():
@@ -71,8 +69,6 @@ def create_vehicle():
     with db.transaction() as cur:
         _lock_fleet(cur)
         _check_name(cur, values)
-        # New robots are simulated. Hardware token provisioning is separate;
-        # internal credentials never appear in manager API responses.
         token_hash = hashlib.sha256(secrets.token_bytes(32)).hexdigest()
         cur.execute('INSERT INTO vehicles (name, max_orders, max_weight_lb, status, api_token_hash) '
                     'VALUES (%s, %s, %s, %s, %s)',
@@ -82,6 +78,7 @@ def create_vehicle():
     return ok(201, vehicle=row)
 
 
+# PATCH /api/admin/delivery/vehicles/<int:vehicle_id>
 @admin_vehicles_bp.patch('/api/admin/delivery/vehicles/<int:vehicle_id>')
 @require_role(*MANAGER)
 def edit_vehicle(vehicle_id):
@@ -95,7 +92,6 @@ def edit_vehicle(vehicle_id):
             raise ApiError('Finish the planned or dispatched trip before editing this vehicle',
                            409, 'VEHICLE_HAS_TRIP')
         _check_name(cur, values, vehicle_id)
-        # Column names come only from FIELDS above, never from request text.
         assignments = ', '.join(f'{field} = %s' for field in values)
         cur.execute(f'UPDATE vehicles SET {assignments} WHERE vehicle_id = %s',
                     (*values.values(), vehicle_id))

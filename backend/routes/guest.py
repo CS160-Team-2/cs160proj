@@ -1,30 +1,10 @@
-"""Checking out without an account.
-
-    POST /api/checkout/guest      {"contact": {...}, "address": {...}}
-    GET  /api/checkout/estimate   the cart's full total, with tax
-    POST /api/orders/lookup       {"order_number", "email"}; track an order without signing in
-
-A visitor can fill a cart, then check out by giving a name, email,
-phone number and delivery address. This route turns those details into
-a guest customer, signs the browser in as that guest, and moves the
-visitor's cart across, so the page can go straight on to
-POST /api/orders exactly as a registered customer does.
-
-A guest has no password and cannot sign in again later; the browser
-session is the only way back to their orders. Their real email is kept
-in contact_email, and users.email holds a private placeholder, so a
-stranger who types a guest's email cannot reach that guest's orders.
-
-If the email already belongs to a registered account, the visitor is
-asked to sign in instead.
-"""
-
 import re
 import uuid
 
-from flask import Blueprint
+from flask import Blueprint, request
 
 import db
+import ratelimit
 import rules
 from common import ApiError, body, current_user, ok, require_text, user_json
 from routes import cart as cart_routes
@@ -51,7 +31,7 @@ def _contact(data):
     return {"full_name": f"{first} {last}", "email": _valid_email(contact), "phone": phone}
 
 
-# Creates a guest customer and address, signs them in, and moves the cart across.
+# POST /api/checkout/guest: Creates a guest customer and address, signs them in, and moves the cart across.
 @guest_bp.post("/api/checkout/guest")
 def start_guest_checkout():
     if current_user() is not None:
@@ -84,7 +64,7 @@ def start_guest_checkout():
     return ok(201, user=user_json(user), address=address_json(_load(address_id)))
 
 
-# Returns the cart's totals with tax so the page can show a final price.
+# GET /api/checkout/estimate: Returns the cart's totals with tax so the page can show a final price.
 @guest_bp.get("/api/checkout/estimate")
 def estimate():
     user = current_user()
@@ -97,13 +77,15 @@ def estimate():
     return ok(**rules.price_lines(lines))
 
 
-# Finds an order by order number plus email for visitors who are not signed in.
+# POST /api/orders/lookup: Finds an order by order number plus email for visitors who are not signed in.
 @guest_bp.post("/api/orders/lookup")
 def lookup_order():
     data = body()
     order_number = require_text(data, "order_number", 20).upper()
     email = _valid_email(data)
 
+    address = request.remote_addr or "unknown"
+    ratelimit.ORDER_LOOKUP.check(address)
     order = db.query_one(
         "SELECT o.* FROM orders o JOIN users u ON u.user_id = o.user_id "
         "WHERE o.order_number = %s "
@@ -111,6 +93,7 @@ def lookup_order():
         (order_number, email),
     )
     if order is None:
+        ratelimit.ORDER_LOOKUP.fail(address)
         raise ApiError("We could not find an order with that order number and email.",
                        404, "ORDER_NOT_FOUND")
     return ok(order=order_detail(order), tracking=tracking_payload(order))

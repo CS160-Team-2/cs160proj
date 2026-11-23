@@ -6,6 +6,9 @@ import { imageFor } from '../productImage'
 import TextContent from '../components/TextContent'
 import ManifestUpload from '../components/ManifestUpload'
 import ManagerLayout from '../components/ManagerLayout'
+import { StockChange, LowStockLevel } from '../components/StockControls'
+import StockHistory from '../components/StockHistory'
+import { loginUrl } from '../redirects'
 
 // Uploads a product picture as form data.
 const uploadImage = (productId, file) => {
@@ -23,7 +26,10 @@ const InventoryLayout = ({ isManager, children }) => isManager ? (
     <div className="text-2xl mb-6">
       <TextContent text1="INVENTORY" text2="CONSOLE" />
     </div>
-    <Link to="/delivery" className="inline-block mb-6 text-sm text-green-700 underline">View delivery tracking</Link>
+    <div className="flex flex-wrap gap-4 mb-6 text-sm">
+      <Link to="/staff/orders" className="text-green-700 underline">View customer orders</Link>
+      <Link to="/delivery" className="text-green-700 underline">View delivery tracking</Link>
+    </div>
     {children}
   </div>
 )
@@ -94,8 +100,8 @@ const ProductForm = ({ initial, categories, withStock, submitLabel, onSubmit, on
       setError('Enter a product name.')
       return
     }
-    if (values.price === '' || !(Number(values.price) >= 0)) {
-      setError('Enter a price of 0 or more.')
+    if (values.price === '' || !(Number(values.price) > 0)) {
+      setError('Enter a price greater than 0.')
       return
     }
     if (!(Number(values.weight) > 0)) {
@@ -205,7 +211,7 @@ const ProductForm = ({ initial, categories, withStock, submitLabel, onSubmit, on
         value={form.description}
         onChange={change('description')}
       />
-      {error && <p className="text-sm text-red-600 sm:col-span-2">{error}</p>}
+      {error && <p role="alert" className="text-sm text-red-600 sm:col-span-2">{error}</p>}
       <div className="flex gap-2 sm:col-span-2">
         <button type="submit" disabled={busy} className="bg-green-600 text-white text-sm px-6 py-2 active:bg-green-400">{submitLabel}</button>
         <button type="button" onClick={onCancel} className="border text-sm px-6 py-2">CANCEL</button>
@@ -217,28 +223,9 @@ const ProductForm = ({ initial, categories, withStock, submitLabel, onSubmit, on
 // One product in the list: change its stock, edit it, or take it off sale.
 const InventoryRow = ({ item, currency, categories, onChanged }) => {
 
-  const [amount, setAmount] = useState('')
   const [message, setMessage] = useState('')
   const [editing, setEditing] = useState(false)
-
-  const changeStock = async () => {
-    const delta = parseInt(amount, 10)
-    if (!delta) {
-      setMessage('Enter a number such as 10 or -3.')
-      return
-    }
-    try {
-      await api(`/api/admin/inventory/${item.product_id}`, {
-        method: 'PATCH',
-        body: { delta, reason: delta > 0 ? 'Restock' : 'Adjustment' },
-      })
-      setAmount('')
-      setMessage('')
-      onChanged()
-    } catch (err) {
-      setMessage(err.message)
-    }
-  }
+  const [showHistory, setShowHistory] = useState(false)
 
   // Unlisting hides the product from the shop but keeps it (and every past
   // order that includes it). Listing it again puts it back on sale.
@@ -269,10 +256,16 @@ const InventoryRow = ({ item, currency, categories, onChanged }) => {
         description: values.description || null,
       },
     })
-    if (values.imageFile) {
-      await uploadImage(item.product_id, values.imageFile)
-    } else if (values.removeImage) {
-      await api(`/api/admin/products/${item.product_id}/image`, { method: 'DELETE' })
+    // The details are saved now, so refresh the list even if the picture fails below.
+    onChanged()
+    try {
+      if (values.imageFile) {
+        await uploadImage(item.product_id, values.imageFile)
+      } else if (values.removeImage) {
+        await api(`/api/admin/products/${item.product_id}/image`, { method: 'DELETE' })
+      }
+    } catch (err) {
+      throw new Error(`Saved, but the picture was not saved: ${err.message} The form stays open so you can try the picture again.`)
     }
     setEditing(false)
     onChanged()
@@ -302,41 +295,37 @@ const InventoryRow = ({ item, currency, categories, onChanged }) => {
   }
 
   return (
-    <div className="py-4 border-t border-b text-gray-700 flex flex-col gap-3 sm:grid sm:grid-cols-[minmax(0,1fr)_9rem_16rem] sm:items-center sm:gap-4">
-      <div className="flex items-center gap-3">
-        <img src={imageFor(item.image_key)} alt="" className="w-14 h-14 object-cover border" />
+    <div className="py-4 border-t border-b text-gray-700 flex flex-col gap-3">
+      <div className="flex flex-col gap-3 sm:grid sm:grid-cols-[minmax(0,1fr)_9rem_16rem] sm:items-center sm:gap-4">
+        <div className="flex items-center gap-3 min-w-0">
+          <img src={imageFor(item.image_key)} alt="" className="w-14 h-14 object-cover border shrink-0" />
+          <div className="min-w-0">
+            <p className="font-medium">{item.name}</p>
+            <p className="text-sm text-gray-500">{item.category} · {currency}{item.price} · {item.unit_weight_lb} lb</p>
+            {item.description && <p className="text-xs text-gray-500 truncate" title={item.description}>{item.description}</p>}
+          </div>
+        </div>
+        <div className="text-sm">
+          <p>In stock: <span className="font-medium">{item.stock}</span></p>
+          {(item.low_stock || !item.is_listed) && (
+            <p className="flex gap-2 mt-0.5 text-xs">
+              {item.low_stock && <span className="text-red-600">LOW</span>}
+              {!item.is_listed && <span className="text-gray-500">UNLISTED</span>}
+            </p>
+          )}
+          <LowStockLevel item={item} onChanged={onChanged} />
+        </div>
         <div>
-          <p className="font-medium">{item.name}</p>
-          <p className="text-sm text-gray-500">{item.category} · {currency}{item.price} · {item.unit_weight_lb} lb</p>
+          <StockChange item={item} onChanged={onChanged} />
+          <div className="flex gap-2 mt-2">
+            <button onClick={() => setEditing(true)} className="border text-sm px-4 py-1">EDIT</button>
+            <button onClick={toggleListed} className="border text-sm px-4 py-1">{item.is_listed ? 'UNLIST' : 'LIST AGAIN'}</button>
+            <button onClick={() => setShowHistory(!showHistory)} aria-expanded={showHistory} aria-label={`History of ${item.name}`} className="border text-sm px-4 py-1">HISTORY</button>
+          </div>
+          {message && <p className="mt-1 text-sm text-red-600">{message}</p>}
         </div>
       </div>
-      <div className="text-sm">
-        <p>In stock: <span className="font-medium">{item.stock}</span></p>
-        {(item.low_stock || !item.is_listed) && (
-          <p className="flex gap-2 mt-0.5 text-xs">
-            {item.low_stock && <span className="text-red-600">LOW</span>}
-            {!item.is_listed && <span className="text-gray-500">UNLISTED</span>}
-          </p>
-        )}
-      </div>
-      <div>
-        <div className="flex items-center gap-2">
-          <input
-            className="border max-w-20 px-2 py-1"
-            type="number"
-            placeholder="+/-"
-            aria-label={`Change stock of ${item.name}`}
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-          />
-          <button onClick={changeStock} className="bg-green-600 text-white text-sm px-4 py-2 active:bg-green-400">UPDATE</button>
-        </div>
-        <div className="flex gap-2 mt-2">
-          <button onClick={() => setEditing(true)} className="border text-sm px-4 py-1">EDIT</button>
-          <button onClick={toggleListed} className="border text-sm px-4 py-1">{item.is_listed ? 'UNLIST' : 'LIST AGAIN'}</button>
-        </div>
-        {message && <p className="mt-1 text-sm text-red-600">{message}</p>}
-      </div>
+      {showHistory && <div className="bg-gray-50 border px-3 py-2 overflow-x-auto"><StockHistory item={item} /></div>}
     </div>
   )
 }
@@ -348,6 +337,7 @@ const Inventory = () => {
   const [items, setItems] = useState(null)
   const [search, setSearch] = useState('')
   const [availability, setAvailability] = useState('')
+  const [category, setCategory] = useState('')
   const [error, setError] = useState('')
   const [adding, setAdding] = useState(false)
   const [notice, setNotice] = useState('')
@@ -359,6 +349,7 @@ const Inventory = () => {
     const params = new URLSearchParams()
     if (search.trim()) params.set('search', search.trim())
     if (availability) params.set('availability', availability)
+    if (category) params.set('category', category)
     api(`/api/admin/inventory?${params}`)
       .then((data) => {
         setItems(data.inventory)
@@ -375,10 +366,10 @@ const Inventory = () => {
 
   useEffect(() => {
     if (isStaff(user)) load()
-  }, [user, search, availability])
+  }, [user, search, availability, category])
 
   useEffect(() => {
-    if (isStaff(user)) api('/api/categories').then((data) => setKnownCategories(data.categories)).catch(() => {})
+    if (isStaff(user)) api('/api/admin/categories').then((data) => setKnownCategories(data.categories)).catch(() => {})
   }, [user])
 
   const addProduct = async (values) => {
@@ -406,7 +397,7 @@ const Inventory = () => {
   }
 
   if (user === undefined) return null
-  if (!isStaff(user)) return <Navigate to="/login" replace />
+  if (!isStaff(user)) return <Navigate to={loginUrl('/inventory')} replace />
 
   return (
     <InventoryLayout isManager={user.role === 'manager'}>
@@ -424,6 +415,10 @@ const Inventory = () => {
           <option value="low_stock">Low stock</option>
           <option value="out_of_stock">Out of stock</option>
           <option value="unlisted">Unlisted</option>
+        </select>
+        <select className="border px-3 py-2" aria-label="Filter by category" value={category} onChange={(e) => setCategory(e.target.value)}>
+          <option value="">All categories</option>
+          {categories.map((name) => <option key={name} value={name}>{name}</option>)}
         </select>
         <button
           onClick={() => {
@@ -453,7 +448,7 @@ const Inventory = () => {
       {user.role === 'manager' && <ManifestUpload onApplied={refreshAll} />}
 
       {notice && <p className="mb-4 text-sm text-green-600">{notice}</p>}
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
       {items && items.length === 0 && <p className="text-gray-600">No products match.</p>}
       {items && items.map((item) => (
         <InventoryRow key={item.product_id} item={item} currency={currency} categories={categories} onChanged={refreshAll} />

@@ -162,6 +162,7 @@ const AddressForm = ({ initial, submitLabel, onSubmit, onCancel }) => {
         <input className={inputClass} placeholder="State" aria-label="State" autoComplete="address-level1" maxLength={50} value={form.state} onChange={change('state')} />
         <input className={inputClass} placeholder="ZIP" aria-label="ZIP" autoComplete="postal-code" inputMode="numeric" value={form.zip_code} onChange={change('zip_code')} />
       </div>
+      <p className="text-xs text-gray-500">We deliver within 25 miles of our San Jose store.</p>
       {error && <p className="text-sm text-red-600" role="alert">{error}</p>}
       <div className="flex gap-3">
         <button type="submit" disabled={busy} className="bg-green-600 text-white text-sm px-6 py-2 active:bg-green-400 disabled:opacity-60">{busy ? 'Saving...' : submitLabel}</button>

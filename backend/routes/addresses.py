@@ -1,26 +1,10 @@
-"""Delivery addresses (API design table III). Customers only.
-
-    GET    /api/users/me/addresses
-    POST   /api/users/me/addresses              geocoded on save; refused if not found
-    PATCH  /api/users/me/addresses/<id>         re-geocoded
-    DELETE /api/users/me/addresses/<id>         soft delete
-
-An address the mapping service cannot find is refused when it is saved,
-so a bad address fails now, in front of the customer, rather than later
-during route planning.
-
-Editing an address that an order already used saves the edit as a new
-address and retires the old one, so that order's delivery address never
-changes after the fact. The response always carries the address id to
-use from now on.
-"""
-
 import re
 
 from flask import Blueprint
 
 import db
 from common import CUSTOMER, ApiError, body, current_user, ok, require_role, require_text
+import rules
 from services import mapping
 
 addresses_bp = Blueprint("addresses", __name__)
@@ -40,8 +24,8 @@ def address_json(row):
     }
 
 
+# The customer's own, not-deleted address, or None.
 def owned_address(user_id, address_id):
-    """The customer's own, not-deleted address, or None."""
     return db.query_one(
         "SELECT * FROM addresses WHERE address_id = %s AND user_id = %s AND is_deleted = FALSE",
         (address_id, user_id),
@@ -69,6 +53,10 @@ def _geocode(values):
     if point is None:
         raise ApiError("We could not find that address on the map. Please check it.",
                        422, "ADDRESS_NOT_FOUND")
+    miles = mapping.miles_from_store(point)
+    if not rules.is_in_service_area(miles):
+        raise ApiError(f"Sorry, we only deliver within {rules.SERVICE_RADIUS_MILES:g} miles of our San Jose store, "
+                       f"and that address is about {miles:.0f} miles away.", 422, "OUTSIDE_DELIVERY_AREA")
     return point
 
 
@@ -85,6 +73,7 @@ def _load(address_id):
     return db.query_one("SELECT * FROM addresses WHERE address_id = %s", (address_id,))
 
 
+# GET /api/users/me/addresses: Lists the customer's saved addresses.
 @addresses_bp.get("/api/users/me/addresses")
 @require_role(*CUSTOMER)
 def list_addresses():
@@ -95,6 +84,7 @@ def list_addresses():
     return ok(addresses=[address_json(r) for r in rows])
 
 
+# POST /api/users/me/addresses: Saves a new delivery address after checking it on the map.
 @addresses_bp.post("/api/users/me/addresses")
 @require_role(*CUSTOMER)
 def add_address():
@@ -105,6 +95,7 @@ def add_address():
     return ok(201, address=address_json(_load(address_id)))
 
 
+# PATCH /api/users/me/addresses/<int:address_id>
 @addresses_bp.patch("/api/users/me/addresses/<int:address_id>")
 @require_role(*CUSTOMER)
 def edit_address(address_id):
@@ -113,7 +104,6 @@ def edit_address(address_id):
     if existing is None:
         raise ApiError("No such address", 404, "NOT_FOUND")
 
-    # Fields left out keep their current value.
     data = {f: existing[f] for f in FIELDS} | {k: v for k, v in body().items() if k in FIELDS}
     values = _validated(data)
     point = _geocode(values)
@@ -132,6 +122,7 @@ def edit_address(address_id):
     return ok(address=address_json(_load(address_id)))
 
 
+# DELETE /api/users/me/addresses/<int:address_id>
 @addresses_bp.delete("/api/users/me/addresses/<int:address_id>")
 @require_role(*CUSTOMER)
 def delete_address(address_id):

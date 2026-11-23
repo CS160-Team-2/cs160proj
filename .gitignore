@@ -29,9 +29,15 @@ coverage/
 # Pictures staff upload for products
 backend/uploads/
 
-# Final presentation instructions from the course (not part of the project)
-CS160_Project_2, sec4.docx
 
-# Course project documents and the final presentation script (reference only)
-Team 2 - Project*.pdf
-workflow_script.pdf
+# Team working notes (checklists, decision log and their "unfinished" copies); not part of the project
+*_WORKFLOW_TODO.txt
+CUSTOMER_WORKFLOW_DECISIONS.txt
+UNFINISHED_*
+
+# Local tool folders
+.claude/
+
+# Coverage reports that CI and local runs write
+htmlcov/
+coverage.xml

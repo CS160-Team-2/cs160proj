@@ -3,15 +3,26 @@ import { Link } from 'react-router-dom'
 import { StoreContext } from '../context/StoreContext'
 import CartTotal from '../components/CartTotal'
 import { TrashIcon } from '../components/Icons'
+import ProblemPanel from '../components/ProblemPanel'
 
 const Cart = () => {
 
-  const { currency, cart, cartItems: cartData, updateQuantity, removeFromCart } = useContext(StoreContext)
+  const { currency, cart, cartError, reloadCart, cartItems: cartData, updateQuantity, removeFromCart } = useContext(StoreContext)
   const [message, setMessage] = useState('')
 
   const change = async (action) => {
     const result = await action
     setMessage(result.ok ? '' : result.message)
+  }
+
+  // The cart could not be loaded and there is nothing to show: say so, rather than claiming it is empty.
+  if (cartError && cartData.length === 0) {
+    return (
+      <ProblemPanel title="We could not load your cart" message={cartError}>
+        <button type="button" onClick={() => reloadCart()} className="bg-green-600 text-white px-8 py-3 text-sm">TRY AGAIN</button>
+        <Link to="/products" className="border border-gray-800 px-8 py-3 text-sm">BROWSE PRODUCTS</Link>
+      </ProblemPanel>
+    )
   }
 
   return (

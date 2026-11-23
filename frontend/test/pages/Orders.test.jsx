@@ -1,0 +1,274 @@
+// test customer order pages:  show order list
+// findByText() - wait for the text to appear
+// getByText() - check if the text is there
+
+import React from 'react'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { render, screen } from '@testing-library/react'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { OrderDetail, OrderHistory } from '../../src/pages/Orders'
+import { StoreContext } from '../../src/context/StoreContext'
+import { api } from '../../src/api'
+
+vi.mock('../../src/api', () => ({ api: vi.fn() }))
+
+const customer =
+{
+  user_id: 1,
+  full_name: 'Anna Rivera',
+  role: 'customer'
+}
+
+const orderInList =
+{
+  order_number: 'OFS-TEST001',
+  placed_at: '2026-10-20T18:00:00Z',
+  item_count: 2,
+  status: 'out_for_delivery',
+  grand_total: '9.75'
+}
+
+const orderDetails =
+{
+  order_number: 'OFS-TEST001',
+  placed_at: '2026-10-20T18:00:00Z',
+  items: [
+    { product_id: 1, name: 'Apple', quantity: 2, line_total: '5.00' }
+  ],
+  address:
+  {
+    street: '1 Washington Sq',
+    city: 'San Jose',
+    state: 'CA',
+    zip_code: '95192'
+  },
+  payment: { card_last4: '4242' },
+  subtotal: '5.00',
+  total_weight_lb: '2.00',
+  delivery_fee: '0.00',
+  tax: '0.50',
+  grand_total: '5.50'
+}
+
+// tracking data
+const orderTracking =
+{
+  status: 'placed',
+  steps: [
+    { status: 'placed', done: true, reached_at: '2026-10-20T18:00:00Z' },
+    { status: 'awaiting_delivery', done: false },
+    { status: 'assigned_to_trip', done: false },
+    { status: 'out_for_delivery', done: false },
+    { status: 'delivered', done: false }
+  ],
+  estimated_arrival: null,
+  map: null
+}
+
+// return fake data
+function fakeBackend(orders, tracking = orderTracking)
+{
+  api.mockImplementation(async (path) =>
+  {
+    if (path === '/api/orders')
+    {
+      return { orders: orders }
+    }
+
+    if (path === '/api/orders/OFS-TEST001')
+    {
+      return { order: orderDetails }
+    }
+
+    if (path === '/api/orders/OFS-TEST001/tracking')
+    {
+      return tracking
+    }
+  })
+}
+
+// open the page
+function openPage(url, user)
+{
+  render(
+    <StoreContext.Provider value={{ user: user, currency: '$' }}>
+      <MemoryRouter initialEntries={[url]}>
+        <Routes>
+          <Route path="/orders" element={<OrderHistory />} />
+          <Route path="/orders/:orderNumber" element={<OrderDetail />} />
+          <Route path="/login" element={<p>Sign in page</p>} />
+        </Routes>
+      </MemoryRouter>
+    </StoreContext.Provider>
+  )
+}
+
+describe('Customer orders', () =>
+{
+  afterEach(() => vi.unstubAllEnvs())
+  // clear mocks before test
+  beforeEach(() =>
+  {
+    vi.resetAllMocks()
+  })
+
+  //------ Order list test --------
+  test('shows the list of orders', async () =>
+  {
+    fakeBackend([orderInList])
+    openPage('/orders', customer)
+
+    expect(await screen.findByText('OFS-TEST001')).toBeInTheDocument()
+    expect(screen.getByText('Out for delivery')).toBeInTheDocument()
+    expect(screen.getByText('$9.75')).toBeInTheDocument()
+  })
+
+  // -------- Order link test -------
+  test('clicking an order goes to its own page', async () =>
+  {
+    fakeBackend([orderInList])
+    openPage('/orders', customer)
+
+    const link = await screen.findByRole('link')
+    expect(link).toHaveAttribute('href', '/orders/OFS-TEST001')
+  })
+
+  // -------- no orders test -------
+  test('shows a message when there are no orders', async () =>
+  {
+    fakeBackend([])
+    openPage('/orders', customer)
+
+    expect(
+      await screen.findByText('You have not placed any orders yet.')
+    ).toBeInTheDocument()
+  })
+
+  // -------- error message test -------
+  test('shows an error when the backend fails', async () =>
+  {
+    api.mockRejectedValue(new Error('Could not load orders.'))
+    openPage('/orders', customer)
+
+    expect(
+      await screen.findByText('Could not load orders.')
+    ).toBeInTheDocument()
+  })
+
+  // --------- order details test -------
+  test('order page shows items, address, card and total', async () =>
+  {
+    fakeBackend([orderInList])
+    openPage('/orders/OFS-TEST001', customer)
+
+    expect(await screen.findByText('2 x Apple')).toBeInTheDocument()
+    expect(screen.getByText(/Delivering to 1 Washington Sq/)).toBeInTheDocument()
+    expect(screen.getByText('Paid with card ending 4242')).toBeInTheDocument()
+    expect(screen.getByText('Free')).toBeInTheDocument()
+    expect(screen.getByText('$5.50')).toBeInTheDocument()
+  })
+
+  // --------- delivery tracking test -------
+  test('order page shows the delivery steps', async () =>
+  {
+    fakeBackend([orderInList])
+    openPage('/orders/OFS-TEST001', customer)
+
+    expect(await screen.findByText('Order placed')).toBeInTheDocument()
+    expect(screen.getByText('Delivered')).toBeInTheDocument()
+  })
+
+  test('C14 shows the saved delivery-address preview before an order has a trip', async () =>
+  {
+    vi.stubEnv('VITE_MAPBOX_ACCESS_TOKEN', '')
+    fakeBackend([orderInList], {
+      ...orderTracking,
+      map: {
+        preview: true, trip_status: null,
+        store: { latitude: '37.3352', longitude: '-121.8811' },
+        destination: { latitude: '37.34', longitude: '-121.89' },
+        vehicle_position: null, directions_url: null,
+      },
+    })
+    openPage('/orders/OFS-TEST001', customer)
+    expect(await screen.findByRole('region', { name: 'Delivery map preview' })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Delivery address preview diagram' })).toBeInTheDocument()
+    expect(screen.getByText(/Your route will appear once your order is assigned/)).toBeInTheDocument()
+    expect(screen.getByText(/Delivering to 1 Washington Sq/)).toBeInTheDocument()
+  })
+
+  // The manager took the order off its trip: the customer is told, and the trip step is no longer ticked.
+  test('tells the customer when the store took the order off its trip', async () =>
+  {
+    fakeBackend([{ ...orderInList, status: 'awaiting_delivery' }], {
+      ...orderTracking,
+      status: 'awaiting_delivery',
+      steps: [
+        { status: 'placed', done: true, reached_at: '2026-10-20T18:00:00Z' },
+        { status: 'awaiting_delivery', done: true, reached_at: '2026-10-20T19:00:00Z' },
+        { status: 'assigned_to_trip', done: false },
+        { status: 'out_for_delivery', done: false },
+        { status: 'delivered', done: false }
+      ],
+      notice: 'The store took your order off its planned delivery trip. It is back in the queue and will be put on a new trip soon.',
+    })
+    openPage('/orders/OFS-TEST001', customer)
+
+    const notice = await screen.findByText(/took your order off its planned delivery trip/)
+    expect(notice).toHaveAttribute('role', 'status')
+    expect(screen.getByText('Assigned to a trip').className).toContain('text-gray-400')
+    expect(screen.getByText('Awaiting delivery', { selector: 'p' }).className).toContain('font-medium')
+  })
+
+  // C10: text typed by a customer is shown as plain text, never run.
+  test('shows a hostile delivery address as plain text', async () =>
+  {
+    const hostile = '<img src=x onerror="alert(1)">'
+    api.mockImplementation(async (path) =>
+    {
+      if (path === '/api/orders/OFS-TEST001') return { order: { ...orderDetails, address: { ...orderDetails.address, street: hostile } } }
+      if (path === '/api/orders/OFS-TEST001/tracking') return orderTracking
+      return { orders: [orderInList] }
+    })
+    openPage('/orders/OFS-TEST001', customer)
+
+    expect(await screen.findByText(new RegExp('Delivering to .*onerror'))).toBeInTheDocument()
+    expect(document.querySelector('img[onerror]')).toBeNull()
+  })
+
+  // An ordinary order shows no notice.
+  test('shows no notice for an order that was never taken off a trip', async () =>
+  {
+    fakeBackend([orderInList])
+    openPage('/orders/OFS-TEST001', customer)
+
+    await screen.findByText(/Delivering to 1 Washington Sq/)
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  // --------- user not signed in test -------
+  test('sends user to login page when not signed in', async () =>
+  {
+    openPage('/orders/OFS-TEST001', null)
+
+    expect(await screen.findByText('Sign in page')).toBeInTheDocument()
+  })
+})
+
+// A visitor who is not signed in sees an empty orders page, not the Track form and not a redirect.
+test('signed-out visitor on /orders stays there and sees an empty orders page', async () => {
+  const { StoreContext: Ctx } = await import('../../src/context/StoreContext')
+  const { OrderHistory } = await import('../../src/pages/Orders')
+  render(
+    <Ctx.Provider value={{ user: null, currency: '$' }}>
+      <MemoryRouter initialEntries={['/orders']}>
+        <Routes><Route path="/orders" element={<OrderHistory />} /><Route path="/login" element={<p>login page</p>} /></Routes>
+      </MemoryRouter>
+    </Ctx.Provider>,
+  )
+
+  expect(screen.getByText('You have not placed any orders yet.')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: 'TRACK AN ORDER' })).toHaveAttribute('href', '/track-order')
+  expect(screen.getByRole('link', { name: 'SIGN IN' })).toHaveAttribute('href', '/login?next=%2Forders')
+  expect(screen.queryByPlaceholderText(/Order number/)).not.toBeInTheDocument()
+})

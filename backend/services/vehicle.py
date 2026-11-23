@@ -1,18 +1,3 @@
-"""The link from OFS to the self-driving delivery vehicle.
-
-OFS sends a dispatched trip to the vehicle: the trip id and its stops in
-order. The vehicle reports back through the /api/fleet endpoints, using
-its own token, as it completes each stop.
-
-There is no real vehicle yet, so the only link is a simulated one
-(VEHICLE_LINK=simulated, the default). It accepts every trip. If
-VEHICLE_SIMULATION_SECONDS is set above zero, it also pretends to drive:
-it completes one stop every that-many seconds, through the same code
-path a real vehicle's callback would use. That makes the whole customer
-tracking flow visible in a demo without anyone pressing buttons. Tests
-leave it at zero and report stops themselves.
-"""
-
 import os
 import threading
 import json
@@ -20,8 +5,8 @@ import logging
 import math
 
 
+# Interpolate by distance, not vertex count, along [latitude, longitude].
 def position_on_path(path, fraction):
-    """Interpolate by distance, not vertex count, along [latitude, longitude]."""
     if len(path) == 1:
         return path[0]
     distances = [math.hypot(b[0] - a[0], (b[1] - a[1]) *
@@ -36,8 +21,8 @@ def position_on_path(path, fraction):
     return path[-1]
 
 
+# Cut the saved road geometry at the nearest vertex to each stop.
 def route_segments(path, stops):
-    """Cut the saved road geometry at the nearest vertex to each stop."""
     path = [[float(lat), float(lng)] for lat, lng in path]
     segments = []
     start = 0
@@ -59,23 +44,13 @@ class SimulatedVehicleLink:
         self.seconds_per_stop = seconds_per_stop
         self.sent = []
 
+    # Records the trip sent to the vehicle; the stops are in visiting order.
     def send_trip(self, vehicle, trip_id, stops):
-        """stops: [{"order_id", "order_number", "latitude", "longitude",
-        "est_arrival"}, ...] in visiting order. Returns True if the
-        vehicle accepted the trip."""
         self.sent.append({"vehicle_id": vehicle["vehicle_id"], "trip_id": trip_id, "stops": stops})
-        # The recovery worker discovers committed trips. Starting timers here
-        # would race the dispatch transaction and lose their state on restart.
         return True
 
+    # Advance one persisted leg using the database's clock and row lock.
     def tick(self, trip_id):
-        """Advance one persisted leg using the database's clock and row lock.
-
-        A restart never resets the leg clock. Multiple Flask processes may
-        poll, but the trip lock and idempotent completion serialize them.
-        Downtime counts toward the current leg; subsequent legs start when
-        their preceding stop is recorded delivered.
-        """
         if self.seconds_per_stop <= 0:
             return
         import db
@@ -122,8 +97,8 @@ _recovery_thread = None
 _recovery_lock = threading.Lock()
 
 
+# Start once per process; retry discovery if MySQL is temporarily down.
 def start_recovery():
-    """Start once per process; retry discovery if MySQL is temporarily down."""
     global _recovery_thread
     if os.environ.get('VEHICLE_LINK', 'simulated') != 'simulated':
         return
@@ -163,7 +138,7 @@ def link():
     return _link
 
 
+# Swap the link, for tests.
 def use_link(instance):
-    """Swap the link, for tests."""
     global _link
     _link = instance

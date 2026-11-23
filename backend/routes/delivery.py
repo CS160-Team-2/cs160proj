@@ -1,34 +1,3 @@
-"""Delivery management (API design table IX). Managers only, except the read-only /api/staff routes.
-
-    GET    /api/admin/delivery/queue                        orders waiting, oldest first
-    GET    /api/admin/delivery/vehicles                     vehicles and their limits
-    POST   /api/admin/delivery/trips                        create a trip (see below)
-    GET    /api/admin/delivery/trips                        ?status=planned
-    GET    /api/admin/delivery/trips/<trip_id>              stops, totals, capacity left, route
-    POST   /api/admin/delivery/trips/<trip_id>/orders       {"order_id"}; rechecks both limits
-    DELETE /api/admin/delivery/trips/<trip_id>/orders/<order_id>   back to the queue
-    POST   /api/admin/delivery/trips/<trip_id>/route        re-plan the route
-    POST   /api/admin/delivery/trips/<trip_id>/dispatch     send it to the vehicle
-    GET    /api/admin/delivery/exceptions                   orders that cannot be scheduled, and why
-    GET    /api/staff/delivery/trips                        read-only trips and routes (employees too)
-    GET    /api/staff/delivery/board                        read-only waiting orders, problems, vehicles (employees too)
-
-Creating a trip, POST /api/admin/delivery/trips:
-    {}                                   fill a trip from the queue, oldest order first
-    {"order_ids": [4, 7, 9]}             a trip of exactly these orders
-    {"vehicle_id": 2, ...}               use this vehicle (default: the first free one)
-
-The order of events follows the design's manager workflow: the capacity
-check comes first (10 orders and 200 lb, both at once, read from the
-vehicle's own record), then the route is planned, and only a trip that
-passed both can be dispatched. The route is re-planned automatically
-whenever a trip's orders change, and cannot be changed once dispatched.
-
-Routes use each address's saved coordinates. Addresses are checked with
-the mapping service when the customer saves them, so an address that
-cannot be found never reaches a trip.
-"""
-
 import json
 import os
 from contextlib import nullcontext
@@ -48,10 +17,6 @@ delivery_bp = Blueprint("delivery", __name__)
 
 TRIP_STATUSES = ("planned", "out_for_delivery", "completed")
 
-
-# =====================================================================
-# Reading trips
-# =====================================================================
 
 def _vehicle(vehicle_id):
     return db.query_one("SELECT * FROM vehicles WHERE vehicle_id = %s", (vehicle_id,))
@@ -82,7 +47,7 @@ def _stops(trip_id, cur=None):
     )
     if cur is not None:
         cur.execute(sql, (trip_id,))
-        return cur.fetchall()
+        return list(cur.fetchall())
     return db.query_all(sql, (trip_id,))
 
 
@@ -166,14 +131,8 @@ def _free_vehicle_ids(cur):
     return [r["vehicle_id"] for r in cur.fetchall()]
 
 
-# =====================================================================
-# Route planning
-# =====================================================================
-
+# Order the trip's stops and set every arrival estimate.
 def plan_route(cur, trip_id):
-    """Order the trip's stops and set every arrival estimate. Returns None
-    on success, or the reason it failed (the trip is then left without a
-    route, so it cannot be dispatched)."""
     stops = _stops(trip_id, cur)
     if not stops:
         cur.execute("UPDATE delivery_trips SET route_json = NULL, route_planned_at = NULL "
@@ -210,10 +169,7 @@ def plan_route(cur, trip_id):
     return None
 
 
-# =====================================================================
-# Queue, vehicles, exceptions
-# =====================================================================
-
+# GET /api/admin/delivery/queue: Lists orders waiting for a trip, oldest first.
 @delivery_bp.get("/api/admin/delivery/queue")
 @require_role(*MANAGER)
 def queue():
@@ -245,24 +201,24 @@ def _scheduling_problems():
     return problems
 
 
+# GET /api/admin/delivery/vehicles: Lists vehicles with their limits and current trip.
 @delivery_bp.get("/api/admin/delivery/vehicles")
 @require_role(*MANAGER)
 def vehicles():
     return ok(vehicles=_vehicle_rows())
 
 
+# GET /api/admin/delivery/exceptions: Lists waiting orders that cannot be scheduled, with the reason.
 @delivery_bp.get("/api/admin/delivery/exceptions")
 @require_role(*MANAGER)
 def exceptions():
     return ok(orders=_scheduling_problems())
 
 
+# GET /api/staff/delivery/board: Read-only delivery status for employees
 @delivery_bp.get("/api/staff/delivery/board")
 @require_role(*STAFF)
 def staff_board():
-    """Read-only delivery status for employees: what is waiting, what cannot be
-    scheduled and why, and the vehicles. Order numbers, weights and times only:
-    no names, addresses or payment data, and no way to change anything."""
     keep = ("order_number", "total_weight_lb", "placed_at", "waited_minutes")
     return ok(
         waiting=[{key: order[key] for key in keep} for order in db.query_all(QUEUE_SQL)],
@@ -271,10 +227,6 @@ def staff_board():
         vehicles=_vehicle_rows(),
     )
 
-
-# =====================================================================
-# Trips
-# =====================================================================
 
 def _lock_queue(cur):
     cur.execute(QUEUE_SQL + " FOR UPDATE")
@@ -287,6 +239,7 @@ def _assign(cur, trip_id, order_id, manager_id):
     change_status(cur, order_id, "awaiting_delivery", "assigned_to_trip", manager_id, "trip")
 
 
+# POST /api/admin/delivery/trips: Creates a trip from chosen orders, or fills one from the queue.
 @delivery_bp.post("/api/admin/delivery/trips")
 @require_role(*MANAGER)
 def create_trip():
@@ -351,7 +304,6 @@ def create_trip():
                 _assign(cur, trip_id, order["order_id"], manager_id)
             route_error = plan_route(cur, trip_id)
 
-    # Raised after the block so the too-heavy notes above are still saved.
     if nothing_fits:
         raise ApiError("There are no orders in the queue that can go on a trip", 409,
                        "NOTHING_TO_SCHEDULE",
@@ -362,6 +314,7 @@ def create_trip():
               too_heavy=[o["order_number"] for o in too_heavy])
 
 
+# GET /api/admin/delivery/trips: Lists trips, optionally only those with a given status.
 @delivery_bp.get("/api/admin/delivery/trips")
 @require_role(*MANAGER)
 def list_trips():
@@ -376,24 +329,23 @@ def list_trips():
     return ok(trips=[trip_json(r) for r in rows])
 
 
+# GET /api/admin/delivery/trips/<int:trip_id>
 @delivery_bp.get("/api/admin/delivery/trips/<int:trip_id>")
 @require_role(*MANAGER)
 def get_trip(trip_id):
     return ok(trip=trip_json(_trip(trip_id)))
 
 
+# GET /api/staff/delivery/trips: Read-only fleet view.
 @delivery_bp.get("/api/staff/delivery/trips")
 @require_role(*STAFF)
 def staff_trips():
-    """Read-only fleet view. Contact details and payment data stay private.
-
-    This does not grant employees any of the manager's dispatch, order,
-    payment, or trip-editing permissions.
-    """
     rows = db.query_all("SELECT * FROM delivery_trips ORDER BY trip_id DESC")
     trips = []
     for row in rows:
         trip = trip_json(row)
+        if row["status"] == "planned" and not trip["stops"]:
+            continue
         trip["stops"] = [
             {key: value for key, value in stop.items()
              if key in ("order_id", "order_number", "status", "latitude", "longitude",
@@ -410,6 +362,7 @@ def _require_planned(trip):
                        409, "TRIP_ALREADY_DISPATCHED")
 
 
+# POST /api/admin/delivery/trips/<int:trip_id>/orders
 @delivery_bp.post("/api/admin/delivery/trips/<int:trip_id>/orders")
 @require_role(*MANAGER)
 def add_order_to_trip(trip_id):
@@ -433,6 +386,7 @@ def add_order_to_trip(trip_id):
     return ok(trip=trip_json(_trip(trip_id)), route_error=route_error)
 
 
+# DELETE /api/admin/delivery/trips/<int:trip_id>/orders/<int:order_id>
 @delivery_bp.delete("/api/admin/delivery/trips/<int:trip_id>/orders/<int:order_id>")
 @require_role(*MANAGER)
 def remove_order_from_trip(trip_id, order_id):
@@ -450,6 +404,7 @@ def remove_order_from_trip(trip_id, order_id):
               route_error=None if route_error == "The trip has no orders" else route_error)
 
 
+# POST /api/admin/delivery/trips/<int:trip_id>/route
 @delivery_bp.post("/api/admin/delivery/trips/<int:trip_id>/route")
 @require_role(*MANAGER)
 def replan_route(trip_id):
@@ -457,11 +412,11 @@ def replan_route(trip_id):
         _require_planned(_trip(trip_id, cur, lock=True))
         route_error = plan_route(cur, trip_id)
         if route_error:
-            # A failed explicit re-plan must not destroy the saved good route.
             raise ApiError(f"The route could not be planned: {route_error}", 502, "ROUTE_FAILED")
     return ok(trip=trip_json(_trip(trip_id)))
 
 
+# POST /api/admin/delivery/trips/<int:trip_id>/dispatch
 @delivery_bp.post("/api/admin/delivery/trips/<int:trip_id>/dispatch")
 @require_role(*MANAGER)
 def dispatch(trip_id):
@@ -488,9 +443,6 @@ def dispatch(trip_id):
         if vehicle["status"] != "available":
             raise ApiError(f"{vehicle['name']} is not available", 409, "VEHICLE_BUSY")
 
-        # Arrival times were calculated when the route was planned. A
-        # trip may wait a long time before dispatch; preserve the travel
-        # offsets but start the clock at the actual departure.
         cur.execute(
             "UPDATE trip_orders t JOIN delivery_trips d ON d.trip_id = t.trip_id "
             "SET t.est_arrival = TIMESTAMPADD(SECOND, "
@@ -507,7 +459,6 @@ def dispatch(trip_id):
             change_status(cur, stop["order_id"], "assigned_to_trip", "out_for_delivery",
                           manager_id, "trip")
 
-        # Last, so a vehicle that refuses the trip rolls all of the above back.
         accepted = vehicle_service.link().send_trip(vehicle, trip_id, [
             {"order_id": s["order_id"], "order_number": s["order_number"],
              "latitude": str(s["latitude"]), "longitude": str(s["longitude"]),
@@ -520,14 +471,8 @@ def dispatch(trip_id):
     return ok(trip=trip_json(_trip(trip_id)))
 
 
-# =====================================================================
-# Completing a stop (called by the vehicle, the simulator, or a manager)
-# =====================================================================
-
+# Mark one order on a trip delivered.
 def complete_stop(trip_id, order_id, changed_by=None, source="vehicle", demo=False, cursor=None):
-    """Mark one order on a trip delivered. When it is the trip's last
-    undelivered stop, the trip is completed and its vehicle freed.
-    Reporting the same stop twice is harmless. Returns the trip's status."""
     with (db.transaction() if cursor is None else nullcontext(cursor)) as cur:
         trip = _trip(trip_id, cur, lock=True)
         cur.execute("SELECT delivered_at FROM trip_orders WHERE trip_id = %s AND order_id = %s",
@@ -566,14 +511,10 @@ def complete_stop(trip_id, order_id, changed_by=None, source="vehicle", demo=Fal
         return trip["status"]
 
 
+# POST /api/admin/delivery/trips/<int:trip_id>/simulation/stops/<int:order_id>/complete: Explicit, audited fallback after a restart, even with timers disabled.
 @delivery_bp.post('/api/admin/delivery/trips/<int:trip_id>/simulation/stops/<int:order_id>/complete')
 @require_role(*MANAGER)
 def complete_simulated_stop(trip_id, order_id):
-    """Explicit, audited fallback after a restart, even with timers disabled.
-
-    A retry targets the same stop and is idempotent. Never interpret a retry
-    as 'complete the next stop', which could finish a different order.
-    """
     if os.environ.get('VEHICLE_LINK', 'simulated') != 'simulated':
         raise ApiError('Demo completion is only available for simulated vehicles',
                        409, 'NOT_SIMULATED')

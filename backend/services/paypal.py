@@ -1,24 +1,3 @@
-"""PayPal payments through the Orders v2 API (customer backlog C5b).
-
-How a PayPal payment goes:
-
-  1. The checkout page asks OFS to create a PayPal order. OFS works out the
-     total from the cart itself (never from the browser) and creates the
-     order at PayPal. Only the PayPal order id goes back to the page.
-  2. PayPal's own buttons take the customer through approval. The card,
-     the PayPal login and any bank checks happen on PayPal's pages, so
-     OFS never sees them.
-  3. The page sends "paypal:<order id>" as the payment token. charge()
-     asks PayPal about that order and refuses it unless it is approved and
-     its amount and currency match this checkout exactly, so a customer
-     cannot approve a cheap order and use it for a dearer one. Only then
-     does it capture the money.
-
-The same ChargeResult / refund() shape as the Stripe and fake gateways, so
-routes/orders.py treats every gateway alike. Sandbox by default; a live
-account is refused unless PAYPAL_ALLOW_LIVE=1.
-"""
-
 import base64
 import json
 import logging
@@ -37,19 +16,18 @@ ORDER_ID_PATTERN = re.compile(r"^[A-Za-z0-9]{8,40}$")
 REF_PREFIX = "paypal_"
 
 
-# Formats a money amount the way PayPal wants it: two decimals, as text.
+# Formats a money amount the way PayPal wants it
 def money_text(amount):
     return format(Decimal(str(amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), "f")
 
 
+# Creates, checks and captures PayPal orders.
 class PayPalPaymentGateway:
-    """Creates, checks and captures PayPal orders."""
 
     SANDBOX_API = "https://api-m.sandbox.paypal.com"
     LIVE_API = "https://api-m.paypal.com"
     TIMEOUT_SECONDS = 20
 
-    # PayPal's reasons for a refused capture, in words a customer can follow.
     DECLINE_REASONS = {
         "INSTRUMENT_DECLINED": "PayPal could not take the payment from that account or card",
         "PAYER_ACTION_REQUIRED": "PayPal needs you to approve the payment again",
@@ -70,9 +48,8 @@ class PayPalPaymentGateway:
         self._access_token = None
         self._access_expires = 0
 
-    # --- HTTP ----------------------------------------------------------
 
-    # One HTTPS call; returns (http status, parsed JSON). Raises URLError / OSError if PayPal cannot be reached.
+    # One HTTPS call; returns (http status, parsed JSON).
     def _send(self, method, path, body=None, headers=None, form=None, basic=None):
         data = None
         request_headers = dict(headers or {})
@@ -122,7 +99,6 @@ class PayPalPaymentGateway:
             raise PaymentGatewayError(f"PayPal answered HTTP {status}")
         return status, payload
 
-    # --- Creating an order ---------------------------------------------
 
     # Creates a PayPal order for this amount and returns its id (the page hands it to PayPal's buttons).
     def create_order(self, amount, reference=""):
@@ -139,7 +115,6 @@ class PayPalPaymentGateway:
             raise PaymentGatewayError(f"PayPal would not create the order: HTTP {status}")
         return payload["id"]
 
-    # --- Charging ------------------------------------------------------
 
     # Checks the approved PayPal order matches this checkout, then captures it.
     def charge(self, amount, token, idempotency_key=None):
@@ -207,7 +182,7 @@ class PayPalPaymentGateway:
         return False
 
 
-# A stand-in for tests: it never calls PayPal and understands a few scripted order ids.
+# A stand-in for tests
 class FakePayPalGateway:
 
     currency = "USD"

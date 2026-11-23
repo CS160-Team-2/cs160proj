@@ -1,39 +1,3 @@
-"""Payment gateway.
-
-OFS never sees a card number. The browser hands the card to the gateway
-and gets back a token; OFS sends only that token and the amount, and
-stores only what the gateway returns: approved or declined, a reference,
-and the card's last four digits.
-
-The fake gateway (the default, PAYMENT_GATEWAY=fake) understands these
-test tokens, modelled on the ones card sandboxes publish:
-
-    tok_visa             approved, card ending 4242
-    tok_mastercard       approved, card ending 4444
-    tok_<anything>_1234  approved, card ending 1234
-    tok_declined         declined: "Card declined"
-    tok_expired          declined: "Card expired"
-    tok_insufficient     declined: "Insufficient funds"
-    tok_gateway_down     the gateway cannot be reached (raises)
-
-It also accepts Stripe's names for the three declining test cards
-(listed below), so the same test cards work with either gateway.
-
-The Stripe gateway (PAYMENT_GATEWAY=stripe, with STRIPE_SECRET_KEY) talks
-to Stripe's API directly over HTTPS, so it needs no extra package. It
-accepts either kind of token a browser can get from Stripe:
-
-    pm_...   a PaymentMethod, which Stripe's card field (Stripe.js /
-             Elements) creates in the browser
-    tok_...  a card token. Stripe's published test tokens work with a
-             test key: tok_visa, tok_mastercard, tok_chargeDeclined,
-             tok_chargeDeclinedExpiredCard,
-             tok_chargeDeclinedInsufficientFunds
-
-It refuses a live key (sk_live_...) unless STRIPE_ALLOW_LIVE=1, so a
-class demo can never take real money by accident.
-"""
-
 import hashlib
 import json
 import logging
@@ -48,9 +12,9 @@ from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 
 
+# The gateway could not be reached or gave an unusable answer.
 class PaymentGatewayError(Exception):
-    """The gateway could not be reached or gave an unusable answer. The
-    customer was not charged."""
+    pass
 
 
 @dataclass
@@ -66,8 +30,6 @@ class FakePaymentGateway:
         "tok_declined": "Card declined",
         "tok_expired": "Card expired",
         "tok_insufficient": "Insufficient funds",
-        # Stripe's names for the same test cards, so one list of test
-        # cards works with either gateway.
         "tok_chargeDeclined": "Card declined",
         "tok_chargeDeclinedExpiredCard": "Card expired",
         "tok_chargeDeclinedInsufficientFunds": "Insufficient funds",
@@ -100,34 +62,22 @@ class FakePaymentGateway:
         return True
 
 
-# =====================================================================
-# Stripe
-# =====================================================================
-
 log = logging.getLogger(__name__)
 
 
+# Dollars (Decimal or string) to whole cents, which is what Stripe takes.
 def to_cents(amount):
-    """Dollars (Decimal or string) to whole cents, which is what Stripe takes."""
     return int((Decimal(str(amount)) * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
+# Charges cards through a Stripe PaymentIntent, confirmed at once.
 class StripePaymentGateway:
-    """Charges cards through a Stripe PaymentIntent, confirmed at once.
-
-    Every request carries a Stripe idempotency key, so a request can be
-    retried after a dropped connection without charging the card twice.
-    The key is built from OFS's own checkout key plus the card and the
-    amount: a retry of the same attempt reuses it, while a second try
-    with a different card gets a fresh one.
-    """
 
     API = "https://api.stripe.com/v1"
     TIMEOUT_SECONDS = 20
-    RETRY_DELAYS = (0.5, 1.5)      # two retries after the first try
+    RETRY_DELAYS = (0.5, 1.5)
     RETRYABLE_STATUSES = {409, 429, 500, 502, 503, 504}
 
-    # Stripe decline codes, in the same words the fake gateway uses.
     DECLINE_REASONS = {
         "expired_card": "Card expired",
         "insufficient_funds": "Insufficient funds",
@@ -152,11 +102,9 @@ class StripePaymentGateway:
         self.secret_key = secret_key
         self.currency = currency.lower()
 
-    # --- HTTP ----------------------------------------------------------
 
+    # One HTTPS call.
     def _send(self, method, path, params, idempotency_key):
-        """One HTTPS call. Returns (http_status, parsed JSON body).
-        Raises urllib.error.URLError / OSError if Stripe cannot be reached."""
         data = urllib.parse.urlencode(params).encode() if params else None
         req = urllib.request.Request(f"{self.API}{path}", data=data, method=method)
         req.add_header("Authorization", f"Bearer {self.secret_key}")
@@ -172,9 +120,8 @@ class StripePaymentGateway:
             except ValueError:
                 return exc.code, {}
 
+    # _send, retried with the same idempotency key when the failure might be temporary.
     def _call(self, method, path, params, idempotency_key):
-        """_send, retried with the same idempotency key when the failure
-        might be temporary. Raises PaymentGatewayError when retries run out."""
         problem = None
         for delay in (0, *self.RETRY_DELAYS):
             if delay:
@@ -190,7 +137,6 @@ class StripePaymentGateway:
             return status, payload
         raise PaymentGatewayError(problem)
 
-    # --- Charging ------------------------------------------------------
 
     def _stripe_key(self, prefix, *parts):
         digest = hashlib.sha256("|".join(str(p) for p in parts).encode()).hexdigest()
@@ -207,8 +153,6 @@ class StripePaymentGateway:
             ("amount", cents),
             ("currency", self.currency),
             ("confirm", "true"),
-            # Stripe picks payment methods from the dashboard settings now.
-            # No redirects, since OFS confirms on the server with no return page.
             ("automatic_payment_methods[enabled]", "true"),
             ("automatic_payment_methods[allow_redirects]", "never"),
             ("expand[]", "payment_method"),
@@ -234,14 +178,10 @@ class StripePaymentGateway:
             return ChargeResult(True, ref, last4)
         if intent.get("status") in ("requires_action", "requires_payment_method",
                                     "requires_confirmation"):
-            # Usually a bank asking for 3-D Secure, which needs the browser to
-            # show the bank's own check. OFS cannot do that yet, so give up on
-            # this attempt; nothing was charged.
             self._cancel(ref)
             return ChargeResult(False, ref, last4,
                                 "This card needs an extra check from your bank, which we "
                                 "cannot do yet. Please use another card")
-        # "processing": the money may still move. Should not happen for cards.
         raise PaymentGatewayError(f"Stripe left payment {ref} in status {intent.get('status')}")
 
     def _from_error(self, status, error):
@@ -255,8 +195,6 @@ class StripePaymentGateway:
         if status == 400 and (error.get("code") in ("resource_missing", "token_already_used")
                               or str(error.get("param", "")).startswith("payment_method")):
             return ChargeResult(False, ref, None, "Invalid payment token")
-        # A bad key, a malformed request, or anything else that is our fault
-        # rather than the card's. The card was not charged.
         log.error("Stripe charge failed: HTTP %s %s", status, error.get("message"))
         raise PaymentGatewayError(f"Stripe refused the request: HTTP {status} "
                                   f"{error.get('message', '')}".strip())
@@ -270,9 +208,8 @@ class StripePaymentGateway:
         except PaymentGatewayError:
             log.warning("Could not cancel unfinished Stripe payment %s", intent_id)
 
+    # Refund a whole charge.
     def refund(self, gateway_ref):
-        """Refund a whole charge. True if Stripe accepted the refund (or it
-        was already refunded); False if it did not, so staff can do it by hand."""
         try:
             status, payload = self._call("POST", "/refunds", [("payment_intent", gateway_ref)],
                                          self._stripe_key("refund", gateway_ref))
@@ -295,10 +232,6 @@ def _card_last4(payment_method):
     return None
 
 
-# =====================================================================
-# Choosing the gateway
-# =====================================================================
-
 _gateway = None
 
 
@@ -319,14 +252,13 @@ def gateway():
     return _gateway
 
 
-# True when PayPal is set up: a client id and secret, and not switched off with PAYPAL_ENABLED=0.
+# True when PayPal is set up
 def paypal_enabled():
     return (bool(os.environ.get("PAYPAL_CLIENT_ID") and os.environ.get("PAYPAL_CLIENT_SECRET"))
             and os.environ.get("PAYPAL_ENABLED", "1") != "0")
 
 
 # Says which card gateway is on, and whether PayPal is offered, so the checkout page can show the right options.
-# The PayPal client id is public by design (PayPal's buttons need it in the browser); the secret never leaves the server.
 def public_config():
     enabled = paypal_enabled()
     return {
@@ -340,8 +272,9 @@ def public_config():
     }
 
 
+# The customer chose a payment method this server has not set up.
 class PaymentMethodUnavailable(Exception):
-    """The customer chose a payment method this server has not set up."""
+    pass
 
 
 _paypal = None
@@ -368,7 +301,7 @@ def use_paypal_gateway(instance):
     _paypal = instance
 
 
-# Picks the gateway for a payment token: "paypal:<order id>" goes to PayPal, everything else to the card gateway.
+# Picks the gateway for a payment token
 def gateway_for(token):
     if isinstance(token, str) and token.startswith("paypal:"):
         gateway_in_use = paypal_gateway()
@@ -378,7 +311,7 @@ def gateway_for(token):
     return gateway()
 
 
+# Swap the gateway, for tests.
 def use_gateway(instance):
-    """Swap the gateway, for tests."""
     global _gateway
     _gateway = instance

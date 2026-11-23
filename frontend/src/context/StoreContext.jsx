@@ -19,6 +19,10 @@ const StoreContextProvider = (props) => {
     const [productsError, setProductsError] = useState('')
     const [productsLoading, setProductsLoading] = useState(true)
     const [cart, setCart] = useState(emptyCart)
+    // Set when the cart could not be loaded because the store could not be reached, so pages do not claim the cart is empty.
+    const [cartError, setCartError] = useState('')
+    // Set while we cannot find out who is signed in because the store is out of reach.
+    const [accountError, setAccountError] = useState('')
     // undefined while we ask the backend, then the user or null.
     const [user, setUser] = useState(undefined)
     // True after a signed-in customer's session ran out, until they see the notice.
@@ -42,18 +46,42 @@ const StoreContextProvider = (props) => {
         try {
             const data = await api('/api/cart')
             setCart(data.cart)
-        } catch {
-            setCart(emptyCart)      // e.g. staff accounts have no cart
+            setCartError('')
+        } catch (error) {
+            if (!error.status || error.status >= 500) {
+                setCartError(error.message)      // the store is out of reach: keep what we have and say so
+            } else {
+                setCart(emptyCart)               // e.g. staff accounts have no cart
+                setCartError('')
+            }
         }
     }, [])
 
     useEffect(() => {
         loadProducts()
         loadCart()
-        api('/api/auth/me')
-            .then((data) => setUser(data.user))
-            .catch(() => setUser(null))
     }, [loadProducts, loadCart])
+
+    // Finds out who is signed in. If the store cannot be reached we do not know yet, so the answer stays open and is
+    // asked again every few seconds; pages then never tell a signed-in customer they are signed out.
+    useEffect(() => {
+        let cancelled = false
+        let timer
+        const loadUser = () => api('/api/auth/me')
+            .then((data) => { if (!cancelled) { setUser(data.user); setAccountError('') } })
+            .catch((error) => {
+                if (cancelled) return
+                if (error.status === 0 || error.status >= 500) {
+                    setAccountError(error.message)
+                    timer = setTimeout(loadUser, 5000)
+                } else {
+                    setUser(null)
+                    setAccountError('')
+                }
+            })
+        loadUser()
+        return () => { cancelled = true; clearTimeout(timer) }
+    }, [])
 
     // Keeps the shop's stock and prices fresh: reloads when the tab is shown again and every 30 seconds while it is visible, so changes made by staff (or other buyers) appear without a full page reload.
     useEffect(() => {
@@ -150,6 +178,8 @@ const StoreContextProvider = (props) => {
         dismissSessionExpired: () => setSessionExpired(false),
         signOut,
         cart,
+        cartError,
+        accountError,
         cartItems: cart.items.map(withImage),
         shoppingCartItems,
         addToCart,

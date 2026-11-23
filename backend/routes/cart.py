@@ -1,24 +1,3 @@
-"""Shopping cart (API design table V).
-
-    GET    /api/cart                          the cart, repriced every time
-    POST   /api/cart/items                    {"product_id", "quantity"}; adds to any existing quantity
-    PATCH  /api/cart/items/<product_id>       {"quantity"}; sets the quantity
-    DELETE /api/cart/items/<product_id>       removes the line
-    DELETE /api/cart                          empties the cart
-
-Who owns the cart:
-  - A signed-in customer's cart is saved in the database.
-  - A visitor who has not signed in gets a cart kept in their session
-    cookie, because the design lets people browse and fill a cart before
-    making an account. When they sign in or register, it is merged into
-    their saved cart.
-  - Staff accounts do not have carts.
-
-Every response returns the whole cart with weight and delivery fee
-worked out here, using the same rules as checkout, so the cart and the
-receipt can never disagree.
-"""
-
 from flask import Blueprint, session
 
 import db
@@ -29,12 +8,8 @@ from routes.catalog import fetch_product
 cart_bp = Blueprint("cart", __name__)
 
 
-# =====================================================================
-# Reading and writing either kind of cart
-# =====================================================================
-
+# The customer's user id, or None for a signed-out visitor.
 def _owner():
-    """The customer's user id, or None for a signed-out visitor."""
     user = current_user()
     if user is None:
         return None
@@ -43,8 +18,8 @@ def _owner():
     return user["user_id"]
 
 
+# {product_id: quantity} for this cart.
 def quantities(user_id):
-    """{product_id: quantity} for this cart."""
     if user_id is None:
         return {int(k): v for k, v in session.get("guest_cart", {}).items()}
     rows = db.query_all(
@@ -88,8 +63,8 @@ def _remove(user_id, product_id):
         )
 
 
+# Empty a saved cart inside an existing transaction (used by checkout).
 def clear(cur, user_id):
-    """Empty a saved cart inside an existing transaction (used by checkout)."""
     cur.execute(
         "DELETE ci FROM cart_items ci JOIN carts c ON c.cart_id = ci.cart_id "
         "WHERE c.user_id = %s",
@@ -97,10 +72,8 @@ def clear(cur, user_id):
     )
 
 
+# Fold a visitor's session cart into their saved cart at sign-in.
 def merge_guest_cart(user_id, guest_cart):
-    """Fold a visitor's session cart into their saved cart at sign-in.
-    Quantities add together, capped at what is in stock; products that
-    can no longer be bought are dropped."""
     saved = quantities(user_id)
     for key, quantity in guest_cart.items():
         product = fetch_product(int(key))
@@ -110,12 +83,8 @@ def merge_guest_cart(user_id, guest_cart):
         _set_quantity(user_id, product["product_id"], total)
 
 
-# =====================================================================
-# Pricing
-# =====================================================================
-
+# Current product rows joined with quantities, for pricing.
 def cart_lines(product_quantities):
-    """Current product rows joined with quantities, for pricing."""
     if not product_quantities:
         return []
     ids = list(product_quantities)
@@ -129,8 +98,8 @@ def cart_lines(product_quantities):
     return [{**r, "quantity": product_quantities[r["product_id"]]} for r in rows]
 
 
+# Why this line cannot be bought as it stands, or None.
 def line_problem(line):
-    """Why this line cannot be bought as it stands, or None."""
     if not line["is_listed"]:
         return "This product is no longer sold"
     if line["stock"] <= 0:
@@ -164,6 +133,7 @@ def summary(product_quantities):
         "total_weight_lb": totals["total_weight_lb"],
         "delivery_fee": totals["delivery_fee"],
         "free_delivery_below_lb": rules.FREE_DELIVERY_LIMIT_LB,
+        "delivery_charge": rules.DELIVERY_CHARGE,
         "estimated_total": totals["subtotal"] + totals["delivery_fee"],
         "can_check_out": bool(lines) and all(line_problem(ln) is None for ln in lines),
     }
@@ -188,15 +158,13 @@ def _check_stock(product, quantity):
                        409, "NOT_ENOUGH_STOCK", available=product["stock"])
 
 
-# =====================================================================
-# Routes
-# =====================================================================
-
+# GET /api/cart: Returns the cart with its totals.
 @cart_bp.get("/api/cart")
 def get_cart():
     return _respond(_owner())
 
 
+# POST /api/cart/items: Adds a product to the cart.
 @cart_bp.post("/api/cart/items")
 def add_item():
     user_id = _owner()
@@ -211,6 +179,7 @@ def add_item():
     return _respond(user_id, 201)
 
 
+# PATCH /api/cart/items/<int:product_id>
 @cart_bp.patch("/api/cart/items/<int:product_id>")
 def set_item_quantity(product_id):
     user_id = _owner()
@@ -224,6 +193,7 @@ def set_item_quantity(product_id):
     return _respond(user_id)
 
 
+# DELETE /api/cart/items/<int:product_id>
 @cart_bp.delete("/api/cart/items/<int:product_id>")
 def remove_item(product_id):
     user_id = _owner()
@@ -233,6 +203,7 @@ def remove_item(product_id):
     return _respond(user_id)
 
 
+# DELETE /api/cart: Empties the cart.
 @cart_bp.delete("/api/cart")
 def empty_cart():
     user_id = _owner()

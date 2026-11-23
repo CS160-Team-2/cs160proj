@@ -1,11 +1,8 @@
 import { defineConfig, devices } from '@playwright/test'
 
-// Real-browser tests. They start Flask and Vite when those are not already running.
-// Set E2E_CHANNEL=chrome to use an installed Chrome, or run `npx playwright install chromium` once.
-// Set E2E_WEBKIT=1 to also run in WebKit (Safari's engine): `npx playwright install webkit` once.
-// Set E2E_BACKEND_COMMAND when the Python path differs (for example on Windows).
+// Real-browser tests: start Flask and Vite if needed; the E2E_CHANNEL, E2E_WEBKIT and E2E_BACKEND_COMMAND switches are explained in the README.
 export default defineConfig({
-  testDir: './e2e',
+  testDir: './browser_test',
   testMatch: '**/*.e2e.js',
   workers: 1,
   retries: 0,

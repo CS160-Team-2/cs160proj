@@ -1,16 +1,3 @@
-"""Rebuild the OFS tables and seed data from schema.sql.
-
-schema.sql is still the file to run once in MySQL Workbench, as root,
-because only root can create the cs160team2 account. After that, this
-script lets anyone wipe and re-seed a database without opening Workbench:
-
-    python reset_db.py            # rebuilds the database named in .env (ofs)
-    python reset_db.py ofs_test   # rebuilds the test database
-
-The test suite calls load_tables() itself before every test, against
-ofs_test, so tests never touch the data in ofs.
-"""
-
 import os
 import sys
 from pathlib import Path
@@ -19,12 +6,11 @@ import pymysql
 
 import db
 
-SCHEMA_FILE = Path(__file__).with_name("schema.sql")
+SCHEMA_FILE = Path(__file__).parent / "schema" / "schema.sql"
 
 
+# The statements between the @@TABLES@@ and @@END_TABLES@@ markers in schema.sql, one string per statement.
 def table_statements():
-    """The statements between the @@TABLES@@ and @@END_TABLES@@ markers
-    in schema.sql, one string per statement."""
     text = SCHEMA_FILE.read_text(encoding="utf-8")
     body = text.split("@@TABLES@@", 1)[1].split("@@END_TABLES@@", 1)[0]
 
@@ -39,8 +25,8 @@ def table_statements():
     return [s for s in statements if s]
 
 
+# Drop and recreate every table in `database`, then seed it.
 def load_tables(database):
-    """Drop and recreate every table in `database`, then seed it."""
     config = {**db.DB_CONFIG, "database": None, "autocommit": True}
     conn = pymysql.connect(**config)
     try:

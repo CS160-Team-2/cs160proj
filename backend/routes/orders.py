@@ -1,35 +1,3 @@
-"""Checkout and orders (API design table VI). Customers only.
-
-    POST /api/checkout/preview                   {"address_id"}; changes nothing
-    POST /api/orders                             places the order and takes payment
-    GET  /api/orders                             own order history
-    GET  /api/orders/<order_number>              one order, as it was bought
-    GET  /api/orders/<order_number>/tracking     status, history, estimated arrival
-
-Placing an order, POST /api/orders with
-    {"address_id": 1, "payment_token": "tok_visa", "idempotency_key": "<random, per checkout>"}
-(the key may also come in an Idempotency-Key header):
-
-  1. If this customer already placed an order with this key, return
-     that order instead of charging again. A double-click or a retry
-     after a dropped connection is safe.
-  2. Check the cart is not empty and the address is theirs.
-  3. In one database transaction: lock the stock rows, check every item
-     is still listed and in stock, price the cart with the shared rules,
-     charge the card, then write the order, its items, the payment, the
-     stock reduction and the inventory log, and empty the cart.
-  4. If the card is declined, nothing is written except a record of the
-     declined attempt, and the cart is left exactly as it was.
-  5. If anything fails after the card was charged, the transaction rolls
-     back and the charge is refunded. If the refund itself fails, the
-     charge is recorded as approved with no order and a note, for staff
-     to refund by hand.
-
-Because the stock rows stay locked from the check until the commit, two
-customers cannot both buy the last unit: the second one waits, then
-sees the stock is gone.
-"""
-
 import json
 import os
 import re
@@ -48,12 +16,8 @@ from services import mapping, payments
 orders_bp = Blueprint("orders", __name__)
 
 KEY_PATTERN = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
-ORDER_NUMBER_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"   # no 0/O or 1/I mix-ups
+ORDER_NUMBER_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
-
-# =====================================================================
-# Shared order views (also used by the admin order monitor)
-# =====================================================================
 
 def order_items(order_id):
     rows = db.query_all(
@@ -121,14 +85,9 @@ def _own_order(order_number):
         (order_number, current_user()["user_id"]),
     )
     if row is None:
-        # Same answer for someone else's order as for no order at all.
         raise ApiError("No such order", 404, "NOT_FOUND")
     return row
 
-
-# =====================================================================
-# Checkout
-# =====================================================================
 
 def _address_for(user_id, data):
     address_id = require_int(data, "address_id")
@@ -161,13 +120,13 @@ def _raise_if_problems(lines):
                        409, "CART_NEEDS_CHANGES", items=problems)
 
 
-# Public: which card gateway is on (fake or stripe), its currency, and whether PayPal is offered.
+# GET /api/payments/config: Public: which card gateway is on (fake or stripe), its currency, and whether PayPal is offered.
 @orders_bp.get("/api/payments/config")
 def payment_config():
     return ok(**payments.public_config())
 
 
-# Creates a PayPal order for the cart's total; the server works the amount out, the page only gets the PayPal order id.
+# POST /api/payments/paypal/order: Creates a PayPal order for the cart total (the server works out the amount).
 @orders_bp.post("/api/payments/paypal/order")
 def create_paypal_order():
     user = current_user()
@@ -188,6 +147,7 @@ def create_paypal_order():
     return ok(201, id=order_id, amount=str(totals["grand_total"]))
 
 
+# POST /api/checkout/preview: Shows the full total with tax for an address; changes nothing.
 @orders_bp.post("/api/checkout/preview")
 @require_role(*CUSTOMER)
 def preview():
@@ -231,6 +191,7 @@ def _record_payment(user_id, key, amount, status, charge, order_id=None):
         )
 
 
+# POST /api/orders: Places an order: takes the payment, saves the order and removes the stock.
 @orders_bp.post("/api/orders")
 @require_role(*CUSTOMER)
 def place_order():
@@ -260,8 +221,6 @@ def place_order():
     try:
         with db.transaction() as cur:
             ids = sorted(quantities)
-            # Lock the stock rows, in a fixed order so two checkouts cannot
-            # deadlock each other, and hold them until commit.
             cur.execute(
                 "SELECT p.product_id, p.name, p.price, p.unit_weight_lb, p.is_listed, "
                 "       i.quantity_in_stock AS stock "
@@ -275,7 +234,6 @@ def place_order():
                 raise ApiError("Some items in your cart are no longer sold", 409,
                                "CART_NEEDS_CHANGES")
 
-            # A twin request may have finished while we waited for the locks.
             cur.execute("SELECT order_id FROM orders WHERE user_id = %s AND idempotency_key = %s",
                         (user_id, key))
             if cur.fetchone():
@@ -327,7 +285,6 @@ def place_order():
                 (order_id, user_id, key, totals["grand_total"], charge.gateway_ref,
                  charge.card_last4),
             )
-            # Earlier declined tries at this same checkout now belong to the order.
             cur.execute(
                 "UPDATE payments SET order_id = %s "
                 "WHERE user_id = %s AND idempotency_key = %s AND order_id IS NULL",
@@ -350,8 +307,6 @@ def place_order():
             if gateway.refund(charge.gateway_ref):
                 _record_payment(user_id, key, totals["grand_total"], "refunded", charge)
             else:
-                # Still charged, with no order. Recorded as approved and not
-                # linked to an order, so staff can find it and refund by hand.
                 charge.decline_reason = "Order failed and the automatic refund did not go through"
                 _record_payment(user_id, key, totals["grand_total"], "approved", charge)
         if isinstance(exc, IntegrityError):
@@ -364,10 +319,7 @@ def place_order():
     return ok(201, order=order_detail(order))
 
 
-# =====================================================================
-# Order history and tracking
-# =====================================================================
-
+# GET /api/orders: Lists the signed-in customer's orders.
 @orders_bp.get("/api/orders")
 @require_role(*CUSTOMER)
 def my_orders():
@@ -380,6 +332,7 @@ def my_orders():
     return ok(orders=[{**order_summary(r), "item_count": int(r["item_count"] or 0)} for r in rows])
 
 
+# GET /api/orders/<order_number>: Shows one of the customer's own orders.
 @orders_bp.get("/api/orders/<order_number>")
 @require_role(*CUSTOMER)
 def my_order(order_number):
@@ -389,7 +342,11 @@ def my_order(order_number):
 # Builds the status steps, estimate and map data for one order.
 def tracking_payload(order):
     history = status_history(order["order_id"])
-    reached = {h["to_status"]: h["changed_at"] for h in history}
+    position = rules.ORDER_STATUSES.index(order["status"])
+    reached = {h["to_status"]: h["changed_at"] for h in history
+               if rules.ORDER_STATUSES.index(h["to_status"]) <= position}
+    taken_off_trip = (order["status"] == "awaiting_delivery"
+                      and any(h["to_status"] == "assigned_to_trip" for h in history))
 
     stop = db.query_one(
         "SELECT t.trip_id, t.status AS trip_status, t.route_planned_at, t.route_json, "
@@ -402,7 +359,6 @@ def tracking_payload(order):
         "WHERE o.order_id = %s",
         (order["order_id"],),
     )
-    # An arrival estimate only exists once the order is on a trip with a route.
     estimate = (stop["est_arrival"]
                 if stop and stop["route_planned_at"] and stop["route_json"] else None)
 
@@ -445,9 +401,6 @@ def tracking_payload(order):
             "directions_url": mapping.directions_url(route_origin, destination),
         }
     elif order["status"] != "delivered":
-        # The paid order keeps its own address snapshot. Preview those saved
-        # coordinates without geocoding, planning a route, or exposing stops
-        # belonging to other customers. The same view serves guest lookup.
         address = db.query_one(
             "SELECT latitude, longitude FROM addresses WHERE address_id = %s",
             (order["address_id"],),
@@ -473,8 +426,10 @@ def tracking_payload(order):
     return {
         "order_number": order["order_number"],
         "status": order["status"],
-        "steps": [{"status": s, "reached_at": reached.get(s), "done": s in reached}
+        "steps": [{"status": s, "reached_at": reached.get(s), "done": rules.ORDER_STATUSES.index(s) <= position}
                   for s in rules.ORDER_STATUSES],
+        "notice": ("The store took your order off its planned delivery trip. It is back in the queue and will be "
+                   "put on a new trip soon; your arrival estimate will appear then.") if taken_off_trip else None,
         "history": [{"status": h["to_status"], "at": h["changed_at"]} for h in history],
         "estimated_arrival": estimate if order["status"] != "delivered" else None,
         "delivered_at": order["delivered_at"],
@@ -482,6 +437,7 @@ def tracking_payload(order):
     }
 
 
+# GET /api/orders/<order_number>/tracking: Shows the status steps, arrival estimate and map for one order.
 @orders_bp.get("/api/orders/<order_number>/tracking")
 @require_role(*CUSTOMER)
 def tracking(order_number):

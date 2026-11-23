@@ -123,8 +123,8 @@ command -v curl >/dev/null 2>&1 && ok "curl" "available" || warn "curl" "missing
 # ---------------------------------------------------------------- project
 head2 "Project files"
 HERE="$(cd "$(dirname "$0")" && pwd)"
-for f in backend/app.py backend/db.py backend/rules.py backend/schema.sql \
-         requirements.txt backend/test_integration.py \
+for f in backend/app.py backend/db.py backend/rules.py backend/schema/schema.sql \
+         requirements.txt backend/test/conftest.py \
          frontend/package.json deploy/ofs.conf; do
   [ -f "$HERE/$f" ] && ok "$f" "" || bad "$f" "MISSING"
 done

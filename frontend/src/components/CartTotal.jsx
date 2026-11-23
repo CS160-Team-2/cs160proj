@@ -1,5 +1,6 @@
 import React, { useContext } from 'react'
 import { StoreContext } from '../context/StoreContext'
+import { deliveryHint } from '../deliveryHint'
 
 // Every figure comes from the backend, which uses the same rules as
 // checkout, so the cart and the receipt always agree.
@@ -30,6 +31,7 @@ const CartTotal = () => {
           <p>Delivery Fee</p>
           <p>{empty ? `${currency}0.00` : freeDelivery ? 'Free' : `${currency}${cart.delivery_fee}`}</p>
         </div>
+        <p className="text-xs text-gray-600" data-testid="delivery-hint">{deliveryHint(cart, currency)}</p>
         <hr />
         <div className="flex justify-between">
           <b>Total</b>

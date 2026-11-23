@@ -4,6 +4,7 @@ import { StoreContext } from '../context/StoreContext'
 import { api } from '../api'
 import TextContent from '../components/TextContent'
 import DeliveryOverview from '../components/DeliveryOverview'
+import { loginUrl } from '../redirects'
 
 // A titled block on the page, in the same style as the other pages' headings.
 const Block = ({ text1, text2, children }) => (
@@ -44,7 +45,7 @@ const EmployeeDelivery = () => {
   }, [isEmployee, refresh])
 
   if (user === undefined) return <p role="status">Checking your account...</p>
-  if (!user) return <Navigate to="/login?next=/delivery" replace />
+  if (!user) return <Navigate to={loginUrl('/delivery')} replace />
   if (user.role === 'manager') return <Navigate to={{ pathname: '/manager/delivery', search: location.search, hash: location.hash }} replace />
   if (!isEmployee) return <Navigate to="/orders" replace />
   return (

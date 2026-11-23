@@ -12,9 +12,9 @@ services:
       - "3307:3306"
     volumes:
       - mysql_test_data:/var/lib/mysql
-      - ../../schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-      - ./02-user-grants.sql:/docker-entrypoint-initdb.d/02-user-grants.sql:ro
-      - ./03-test-seed.sql:/docker-entrypoint-initdb.d/03-test-seed.sql:ro
+      - ../../schema/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ../../schema/docker/02-user-grants.sql:/docker-entrypoint-initdb.d/02-user-grants.sql:ro
+      - ../../schema/docker/03-test-seed.sql:/docker-entrypoint-initdb.d/03-test-seed.sql:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-pteam2_password"]
       interval: 5s

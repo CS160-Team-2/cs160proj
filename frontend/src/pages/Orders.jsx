@@ -183,6 +183,7 @@ export const OrderView = ({ order, tracking, justPlaced, footer }) => {
       </div>
 
       {/* Tracking */}
+      {tracking.notice && <p role="status" className="bg-amber-50 border border-amber-600 px-5 py-3 text-sm text-amber-800">{tracking.notice}</p>}
       <ol className="flex flex-col sm:flex-row gap-4 sm:gap-2">
         {tracking.steps.map((step) => (
           <li key={step.status} className="flex-1 flex sm:flex-col gap-3 sm:gap-2">

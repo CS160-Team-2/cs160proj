@@ -1,8 +1,3 @@
-"""M5: persisted payment attempts and current scheduling exceptions.
-
-Scheduling timestamps are explicitly order-placement times, not invented
-failure times. Resolved scheduling exceptions are not a historical audit log.
-"""
 from datetime import date, timedelta
 
 from flask import Blueprint, request
@@ -14,7 +9,6 @@ from routes.admin_orders import _date_arg
 
 admin_problems_bp = Blueprint('admin_problems', __name__)
 
-# Explicit fields only: never expose tokens, user placeholders or raw payloads.
 PROBLEMS_SQL = """
 SELECT CONCAT('payment-', p.transaction_id) AS problem_id,
        CASE WHEN p.status = 'approved' THEN 'payment_review' ELSE p.status END AS kind,
@@ -41,6 +35,7 @@ WHERE o.status = 'awaiting_delivery'
 """
 
 
+# GET /api/admin/problems: Lists declined payments and orders that could not be scheduled.
 @admin_problems_bp.get('/api/admin/problems')
 @require_role(*MANAGER)
 def problems():

@@ -1,18 +1,3 @@
-"""Pieces every route module shares: error responses, reading request
-bodies, and the sign-in and role checks.
-
-Errors: raise ApiError anywhere in a request and the app turns it into
-
-    {"ok": false, "error": {"code": "NOT_FOUND", "message": "..."}}
-
-with the right HTTP status, so route code never builds error responses
-by hand.
-
-Roles: put @require_role(...) on a route. The signed-in user is loaded
-from the database on every request, so a deactivated account loses
-access immediately rather than when its session cookie expires.
-"""
-
 from decimal import Decimal, InvalidOperation
 from functools import wraps
 
@@ -21,7 +6,7 @@ from flask import jsonify, request, session
 import db
 
 CUSTOMER = ("customer",)
-STAFF = ("employee", "manager")      # inventory work: managers can do it too
+STAFF = ("employee", "manager")
 MANAGER = ("manager",)
 ANY_USER = ("customer", "employee", "manager")
 
@@ -37,17 +22,16 @@ class ApiError(Exception):
 
 def error_response(exc):
     body = {"ok": False, "error": {"code": exc.code, "message": exc.message, **exc.extra}}
-    return jsonify(body), exc.status
+    response = jsonify(body)
+    response.status_code = exc.status
+    if "retry_after" in exc.extra:
+        response.headers["Retry-After"] = str(exc.extra["retry_after"])
+    return response
 
 
 def ok(http_status=200, /, **data):
-    # Positional-only, so a response field named "status" stays a field.
     return jsonify({"ok": True, **data}), http_status
 
-
-# =====================================================================
-# Reading the request body
-# =====================================================================
 
 def body():
     data = request.get_json(silent=True)
@@ -72,7 +56,6 @@ def optional_text(data, field, max_length=255):
 
 def require_int(data, field, minimum=None):
     value = data.get(field)
-    # bool is a subclass of int in Python; true must not mean 1 here.
     if isinstance(value, bool):
         raise ApiError(f"{field} must be a whole number")
     try:
@@ -86,9 +69,8 @@ def require_int(data, field, minimum=None):
     return number
 
 
+# Money and weight arrive as strings ("4.99").
 def require_decimal(data, field):
-    """Money and weight arrive as strings ("4.99"). Numbers are accepted
-    too but go through str() first so a float never touches the math."""
     value = data.get(field)
     if value is None or isinstance(value, bool):
         raise ApiError(f"{field} is required, as a decimal string like \"4.99\"")
@@ -101,6 +83,17 @@ def require_decimal(data, field):
     return number
 
 
+# A whole number from the query string, or the default when it is missing.
+def query_arg_int(name, default):
+    raw = request.args.get(name)
+    if raw in (None, ""):
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        raise ApiError(f"{name} must be a whole number") from None
+
+
 def query_arg_decimal(name):
     raw = request.args.get(name)
     if raw in (None, ""):
@@ -111,13 +104,8 @@ def query_arg_decimal(name):
         raise ApiError(f"{name} must be a number") from None
 
 
-# =====================================================================
-# Sign-in and roles
-# =====================================================================
-
+# The signed-in, active user, or None.
 def current_user():
-    """The signed-in, active user, or None. Looked up once per request
-    and kept on the request object, which never outlives the request."""
     if hasattr(request, "ofs_user"):
         return request.ofs_user
     user = None

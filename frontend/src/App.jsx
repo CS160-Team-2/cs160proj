@@ -20,13 +20,14 @@ import ManagerProblems from './pages/ManagerProblems'
 import ManagerVehicles from './pages/ManagerVehicles'
 import ManagerTripManifest from './pages/ManagerTripManifest'
 import NotFound from './pages/NotFound'
+import EmployeeOrders from './pages/EmployeeOrders'
 import ErrorBoundary from './components/ErrorBoundary'
 import { isProtectedPath, loginUrl } from './redirects'
 
 const App = () => {
 
   const { pathname } = useLocation()
-  const { productsError, sessionExpired, dismissSessionExpired } = useContext(StoreContext)
+  const { productsError, accountError, sessionExpired, dismissSessionExpired } = useContext(StoreContext)
   const navigate = useNavigate()
 
   // When the sign-in runs out on a page that needs one, sends the customer to sign in and back again.
@@ -43,8 +44,8 @@ const App = () => {
     <NavigationBar />
 
     <div className="pt-14 px-4 sm:px-[5vw] md:px-[7vw] lg:px-[9vw] print:p-0 min-w-0">
-      {productsError && (
-        <p className="mt-4 p-3 bg-red-50 text-red-700 text-sm" role="alert">{productsError}</p>
+      {(productsError || accountError) && (
+        <p className="mt-4 p-3 bg-red-50 text-red-700 text-sm" role="alert">{productsError || accountError}</p>
       )}
       {sessionExpired && !isProtectedPath(pathname) && (
         <p className="mt-4 p-3 bg-amber-50 text-amber-800 text-sm flex flex-wrap gap-3 items-center" role="alert">
@@ -67,6 +68,7 @@ const App = () => {
         <Route path="/orders/:orderNumber" element={<OrderDetail />} />
         <Route path="/inventory" element={<Inventory />} />
         <Route path="/delivery" element={<EmployeeDelivery />} />
+        <Route path="/staff/orders" element={<EmployeeOrders />} />
         <Route path="/manager" element={<ManagerOrders />} />
         <Route path="/manager/delivery" element={<ManagerDelivery />} />
         <Route path="/manager/staff" element={<ManagerStaff />} />

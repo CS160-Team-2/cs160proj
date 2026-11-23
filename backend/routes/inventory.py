@@ -1,36 +1,16 @@
-"""Catalog and inventory management (API design table VIII). Employees
-and managers.
-
-    POST   /api/admin/products                    add a product (with its starting stock)
-    PATCH  /api/admin/products/<id>               edit details; "is_listed": true relists
-    DELETE /api/admin/products/<id>               unlist: hidden from the shop, never deleted
-    GET    /api/admin/inventory                   ?search=&category=&availability=
-    GET    /api/admin/inventory/low-stock         at or below each product's own threshold
-    PATCH  /api/admin/inventory/<id>              {"delta": -3, "reason": "..."} and/or
-                                                  {"low_stock_threshold": 8}
-    GET    /api/admin/inventory/<id>/changes      the audit trail
-
-Stock is adjusted by a delta ("add 5", "remove 3"), not set to a number,
-so two employees adjusting at the same time both have their change
-applied instead of one overwriting the other. Each change records who,
-when and why. A change that would leave stock below zero is refused.
-
-There is no publish step: a saved change shows in the shop immediately.
-"""
-
 from decimal import Decimal, ROUND_HALF_UP
 
 from flask import Blueprint, request
 
 import db
+from manifest import normalize
 from common import (STAFF, ApiError, body, current_user, ok, optional_text,
-                    require_decimal, require_int, require_role, require_text)
+                    query_arg_int, require_decimal, require_int, require_role, require_text)
 
 inventory_bp = Blueprint("inventory", __name__)
 
-# Limits from schema.sql: DECIMAL(10,2), DECIMAL(8,2), and signed INT.
 MAX_PRICE = Decimal("99999999.99")
-MAX_WEIGHT = Decimal("2000.00")  # realistically, no product should weigh more than 2000 lbs
+MAX_WEIGHT = Decimal("2000.00")
 MAX_INVENTORY_INT = 2147483647
 
 AVAILABILITY_FILTERS = {
@@ -79,7 +59,20 @@ def _price(data):
         raise ApiError("Price cannot be negative", code="INVALID_PRICE")
     if price > MAX_PRICE:
         raise ApiError(f"Price cannot exceed {MAX_PRICE}", code="INVALID_PRICE")
-    return price.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    price = price.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    if price <= 0:
+        raise ApiError("Price must be more than zero", code="INVALID_PRICE")
+    return price
+
+
+# Refuses a product name that another product already has, because manifests find products by name.
+def _require_unused_name(name, own_product_id=None):
+    wanted = normalize(name)
+    for row in db.query_all("SELECT product_id, name, is_listed FROM products"):
+        if row["product_id"] != own_product_id and normalize(row["name"]) == wanted:
+            hint = "" if row["is_listed"] else " (it is unlisted: list it again instead)"
+            raise ApiError(f"A product called \"{row['name']}\" already exists{hint}. Choose another name.",
+                           409, "DUPLICATE_PRODUCT_NAME")
 
 
 def _weight(data):
@@ -104,17 +97,13 @@ def _inventory_int(data, field, minimum=None):
     return number
 
 
-# =====================================================================
-# Products
-# =====================================================================
-
+# POST /api/admin/products: Adds a product with its price, weight and starting stock.
 @inventory_bp.post("/api/admin/products")
 @require_role(*STAFF)
 def add_product():
-    """Body: name, price, unit_weight_lb (required); description,
-    category, image_key, initial_stock, low_stock_threshold (optional)."""
     data = body()
     name = require_text(data, "name", 160)
+    _require_unused_name(name)
     price = _price(data)
     weight = _weight(data)
     description = optional_text(data, "description", 2000)
@@ -145,18 +134,17 @@ def add_product():
     return ok(201, product=inventory_json(_load(product_id)))
 
 
+# PATCH /api/admin/products/<int:product_id>: Any of name, description, category, price, unit_weight_lb, image_key, and is_listed.
 @inventory_bp.patch("/api/admin/products/<int:product_id>")
 @require_role(*STAFF)
 def edit_product(product_id):
-    """Any of name, description, category, price, unit_weight_lb,
-    image_key, and is_listed. Orders already placed keep the name, price
-    and weight they were bought at."""
     _load(product_id)
     data = body()
     changes = {}
 
     if "name" in data:
         changes["name"] = require_text(data, "name", 160)
+        _require_unused_name(changes["name"], product_id)
     if "description" in data:
         changes["description"] = optional_text(data, "description", 2000)
     if "category" in data:
@@ -182,21 +170,17 @@ def edit_product(product_id):
     return ok(product=inventory_json(_load(product_id)))
 
 
+# DELETE /api/admin/products/<int:product_id>: Not a row delete.
 @inventory_bp.delete("/api/admin/products/<int:product_id>")
 @require_role(*STAFF)
 def unlist_product(product_id):
-    """Not a row delete. Carts and past orders point at this product, so
-    deleting it would break their history; it just stops being sold."""
     _load(product_id)
     with db.transaction() as cur:
         cur.execute("UPDATE products SET is_listed = FALSE WHERE product_id = %s", (product_id,))
     return ok(product=inventory_json(_load(product_id)))
 
 
-# =====================================================================
-# Stock
-# =====================================================================
-
+# GET /api/admin/inventory: Searches the inventory by name, category and availability.
 @inventory_bp.get("/api/admin/inventory")
 @require_role(*STAFF)
 def list_inventory():
@@ -226,6 +210,7 @@ def list_inventory():
     return ok(inventory=[inventory_json(r) for r in rows])
 
 
+# GET /api/admin/inventory/low-stock: Lists products at or below their low-stock level.
 @inventory_bp.get("/api/admin/inventory/low-stock")
 @require_role(*STAFF)
 def low_stock():
@@ -236,6 +221,7 @@ def low_stock():
     return ok(inventory=[inventory_json(r) for r in rows])
 
 
+# PATCH /api/admin/inventory/<int:product_id>
 @inventory_bp.patch("/api/admin/inventory/<int:product_id>")
 @require_role(*STAFF)
 def adjust_stock(product_id):
@@ -282,16 +268,26 @@ def adjust_stock(product_id):
     return ok(product=inventory_json(_load(product_id)))
 
 
+# GET /api/admin/inventory/<int:product_id>/changes: Newest first.
 @inventory_bp.get("/api/admin/inventory/<int:product_id>/changes")
 @require_role(*STAFF)
 def stock_changes(product_id):
     _load(product_id)
+    limit = min(max(query_arg_int("limit", 100), 1), 500)
     rows = db.query_all(
         "SELECT l.log_id, l.change_qty, l.old_quantity, l.new_quantity, l.reason, l.created_at, "
         "       u.full_name AS changed_by, o.order_number "
         "FROM inventory_log l LEFT JOIN users u ON u.user_id = l.changed_by "
         "LEFT JOIN orders o ON o.order_id = l.order_id "
-        "WHERE l.product_id = %s ORDER BY l.log_id DESC",
-        (product_id,),
+        "WHERE l.product_id = %s ORDER BY l.log_id DESC LIMIT %s",
+        (product_id, limit),
     )
     return ok(changes=rows)
+
+
+# GET /api/admin/categories: Every category in use, including those only on unlisted products (the public list shows only listed ones).
+@inventory_bp.get("/api/admin/categories")
+@require_role(*STAFF)
+def admin_categories():
+    rows = db.query_all("SELECT DISTINCT category FROM products ORDER BY category")
+    return ok(categories=[r["category"] for r in rows])

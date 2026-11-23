@@ -1,5 +1,5 @@
 // Pages that need a signed-in person; losing the session on one of these sends the customer to sign in.
-const PROTECTED_PREFIXES = ['/checkout', '/orders', '/account', '/manager', '/inventory', '/delivery']
+const PROTECTED_PREFIXES = ['/checkout', '/orders', '/account', '/manager', '/inventory', '/delivery', '/staff']
 
 // True when the path is one of the pages that need a sign-in.
 // The orders list itself (/orders) is open: signed out it simply shows an empty page, so only an order's own page (/orders/...) needs a sign-in.

@@ -1,21 +1,3 @@
-"""Product catalog (API design table IV). Public: no sign-in needed.
-
-    GET /api/products              search, category and price filters, sorting
-    GET /api/products/<id>         one product, with live availability
-    GET /api/categories            categories for the filter control
-
-Query parameters for /api/products, all optional:
-    search=apple        name contains this (case-insensitive)
-    category=Fruits     exact category
-    min_price=2.00      price at least this
-    max_price=10        price at most this
-    sort=price_asc | price_desc | name   (default: product id)
-
-"available" is always worked out here from the listing flag and live
-stock, never by the browser: a product is available when it is listed
-and has stock above zero.
-"""
-
 from flask import Blueprint, request
 
 import db
@@ -61,6 +43,7 @@ def fetch_product(product_id):
                         (product_id,))
 
 
+# GET /api/products: Lists listed products, with search, category, price and sort filters.
 @catalog_bp.get("/api/products")
 def list_products():
     where, params = ["p.is_listed = TRUE"], []
@@ -72,7 +55,6 @@ def list_products():
             where.append("p.name LIKE %s")
             params.append(f"%{search}%")
         else:
-            # A whole number such as 12 or #12 finds product 12 as well as names containing it.
             where.append("(p.name LIKE %s OR p.product_id = %s)")
             params.extend([f"%{search}%", number])
 
@@ -103,6 +85,7 @@ def list_products():
     return ok(products=[product_json(r) for r in rows])
 
 
+# GET /api/products/<int:product_id>
 @catalog_bp.get("/api/products/<int:product_id>")
 def get_product(product_id):
     row = fetch_product(product_id)
@@ -111,6 +94,7 @@ def get_product(product_id):
     return ok(product=product_json(row))
 
 
+# GET /api/categories: Lists the categories that have listed products.
 @catalog_bp.get("/api/categories")
 def list_categories():
     rows = db.query_all(

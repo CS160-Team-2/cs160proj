@@ -9,6 +9,7 @@ export default function useManagerList(path) {
   const [loading, setLoading] = useState(true)
   const loadRef = useRef(null)
   useEffect(() => {
+    if (!path) { setLoading(false); return }       // nothing to load yet (for example, the person is not signed in)
     let current = true
     let sequence = 0
     const load = async () => {
