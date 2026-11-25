@@ -4,6 +4,9 @@ CS 160 Software Engineering · Section 4 · Team 2 · Fall 2026
 
 OFS is a website for a new local organic food retailer chain in downtown San Jose. Customers browse organic groceries, fill a cart, pay online and have the order delivered to their home by a self-driving vehicle. Store employees and managers use dashboards to manage the inventory, watch orders and send deliveries out.
 
+** Demo video (install, configure, customize and use):
+** [Watch the how-to video](https://drive.google.com/file/d/150aqm5CosbRt9qLagM1dLJSXJH7WgoFx/view?usp=drive_link)
+
 ## Contents
 
 - [What the app does](#what-the-app-does)
