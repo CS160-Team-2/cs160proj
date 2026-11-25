@@ -4,13 +4,13 @@ CS 160 Software Engineering · Section 4 · Team 2 · Fall 2026
 
 OFS is a website for a new local organic food retailer chain in downtown San Jose. Customers browse organic groceries, fill a cart, pay online and have the order delivered to their home by a self-driving vehicle. Store employees and managers use dashboards to manage the inventory, watch orders and send deliveries out.
 
-** Demo video (install, configure, customize and use):
-** [Watch the how-to video](https://drive.google.com/file/d/150aqm5CosbRt9qLagM1dLJSXJH7WgoFx/view?usp=drive_link)
+**Demo video** (install, configure, customize and use): [Watch the how-to video](https://drive.google.com/file/d/150aqm5CosbRt9qLagM1dLJSXJH7WgoFx/view?usp=drive_link)
 
 ## Contents
 
 - [What the app does](#what-the-app-does)
 - [Tech stack](#tech-stack)
+- [Run it with Docker](#run-it-with-docker)
 - [Requirements](#requirements)
 - [Getting started](#getting-started)
 - [Configuration](#configuration)
@@ -68,7 +68,53 @@ The scope for what a manager may do to an order is in [MANAGER_ORDER_SCOPE.md](M
 | Payments | Built-in fake gateway, Stripe (test mode), PayPal (sandbox) |
 | Maps | Built-in fake provider, Mapbox or Google Maps |
 | Testing | pytest (backend), Vitest and Testing Library (frontend), Playwright (real browser), GitHub Actions CI |
-| Optional | Docker, for a test MySQL |
+| Packaging | Docker Compose runs the whole app (database, backend, Apache) with one command |
+
+## Run it with Docker
+
+The easiest way to try the whole app, and the way to hand it to another team. It needs only Docker: no Python, Node.js, MySQL or Apache to install, and the demo data loads by itself.
+
+1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/) and start it (Windows 10/11 and macOS, Apple Silicon or Intel; on Windows it uses WSL 2, which its installer sets up).
+2. From the repository root run:
+
+   ```bash
+   docker compose up --build
+   ```
+
+   The first time this downloads and builds everything (a few minutes). Later starts take about 20 seconds. Add `-d` to get your terminal back.
+3. Open <http://localhost:8088> and sign in with one of these demo accounts, or check out as a guest. The first screen after a clean start is the shop with 39 products.
+
+   | Workflow | Email | Password |
+   |---|---|---|
+   | Customer | `customer@ofs.test` | `customer-pass-1` |
+   | Employee | `employee@ofs.test` | `employee-pass-1` |
+   | Manager | `manager@ofs.test` | `manager-pass-1` |
+
+   More about each account is under [Demo accounts](#demo-accounts).
+
+What starts:
+
+| Container | What it is |
+|---|---|
+| `db` | MySQL 8. On its first start it loads `backend/schema/schema.sql`: the tables, the 39 products, the two vehicles and the three demo accounts |
+| `backend` | The Flask API, served by Waitress. Not reachable from your computer directly |
+| `web` | Apache 2.4: serves the built site and forwards `/api` to the backend. This is the only address you open (port 8088) |
+
+Everyday commands (run in the repository root):
+
+| Do this | Command |
+|---|---|
+| Stop, keeping the data | `docker compose stop` (start again with `docker compose start`) |
+| Stop and remove the containers, keeping the data | `docker compose down` |
+| **Start over with the demo data** | `docker compose down -v` then `docker compose up -d` |
+| See what the app is doing | `docker compose logs -f backend` |
+| Open a MySQL prompt | `docker compose exec db mysql -ucs160team2 -pteam2_password ofs` |
+
+Your data (orders, new products, uploaded pictures) lives in a Docker volume, so it survives `stop` and `down`, and only `down -v` erases it. Everything works with no keys: card payments and the map use the built-in fakes, and PayPal is simply not offered.
+
+To change a setting (the port, Stripe or PayPal sandbox keys, a Mapbox token), copy `docker.env.example` to `.env` next to `compose.yaml`, edit it and run `docker compose up --build -d`. The Mapbox and Stripe *publishable* keys are built into the site, so a rebuild is needed after changing them. If port 8088 is taken, set `OFS_PORT` (for example `OFS_PORT=8090 docker compose up -d`). The full guide, with troubleshooting, is in [SETUP.md](SETUP.md#quick-start-with-docker).
+
+The Docker images contain the app only, not the tests or your `.env` files. To change the code, use the normal setup below.
 
 ## Requirements
 
@@ -79,14 +125,14 @@ The scope for what a manager may do to an order is in [MANAGER_ORDER_SCOPE.md](M
 | MySQL Community Server | 8.0 or 8.4 | 8.0.16 or newer is needed for `CHECK` constraints |
 | Git | any recent version | |
 | MySQL Workbench | 8.0.36 or newer | Optional, for running the schema and browsing data |
-| Docker | any recent version | Optional, only for the Docker test database |
+| Docker | any recent version | Needed for [Run it with Docker](#run-it-with-docker); otherwise optional (the Docker test database) |
 | Chrome | any recent version | Optional, for the browser tests |
 
 Python packages are listed in [`requirements.txt`](requirements.txt) and frontend packages in [`frontend/package.json`](frontend/package.json). Apple Silicon and Windows are both supported. For step-by-step installation, including Windows, see [SETUP.md](SETUP.md).
 
 ## Getting started
 
-These steps assume the prerequisites above are installed and MySQL is running.
+This is the setup for working on the code. To just run the app, use [Run it with Docker](#run-it-with-docker). These steps assume the prerequisites above are installed and MySQL is running.
 
 ### 1. Get the code
 
@@ -296,6 +342,11 @@ cs160proj/
 ├── MANAGER_ORDER_SCOPE.md  What a manager may do to an order
 ├── requirements.txt        Python dependencies
 ├── check-setup.sh          Checks that the tools are installed
+├── Dockerfile              Builds the backend and web images (compose.yaml uses it)
+├── compose.yaml            Runs the whole app: database, backend and web
+├── docker.env.example      Optional settings for the Docker setup (copy to .env)
+├── .dockerignore           Keeps tests, notes and .env files out of the images
+├── docker/                 Apache settings for the web container
 ├── .github/                CI workflow and the bug report template
 ├── docs/                   LLD_API.md: the current API tables
 ├── examples/               Sample delivery manifests (CSV)
@@ -360,7 +411,7 @@ cd frontend
 VITE_API_BASE= npm run build
 ```
 
-Apache's configuration and a publish script are in [`deploy/`](deploy/) with the steps in [`deploy/APACHE.md`](deploy/APACHE.md). The setup was checked with Apache 2.4: the site is served, page addresses fall back to the app, `/api` reaches Flask, and sign-in and checkout work through the single address. Behind Apache set `TRUSTED_PROXIES=1`; for HTTPS see [SETUP.md](SETUP.md#security-and-https).
+Docker does this for you (see [Run it with Docker](#run-it-with-docker)). To install Apache yourself, its configuration and a publish script are in [`deploy/`](deploy/) with the steps in [`deploy/APACHE.md`](deploy/APACHE.md). The setup was checked with Apache 2.4: the site is served, page addresses fall back to the app, `/api` reaches Flask, and sign-in and checkout work through the single address. Behind Apache set `TRUSTED_PROXIES=1`; for HTTPS see [SETUP.md](SETUP.md#security-and-https).
 
 ## Updating after a pull
 
@@ -374,7 +425,7 @@ Apache's configuration and a publish script are in [`deploy/`](deploy/) with the
 - Apple Pay and Google Pay buttons are built but need an HTTPS domain and a supported device, so they have not been tried on a real device.
 - Orders and trips cannot be cancelled or refunded: the project documents do not define it (see [MANAGER_ORDER_SCOPE.md](MANAGER_ORDER_SCOPE.md)).
 - There is no password reset, and no email or text message is sent to customers.
-- A Docker image of the whole app is not built yet; Docker is used only for the test database.
+- The Docker package uses the development data and fake services by default, and its Flask server keeps the rate-limit counts in memory.
 - The rate-limit counts are kept in memory and start again when Flask restarts.
 
 ## Team

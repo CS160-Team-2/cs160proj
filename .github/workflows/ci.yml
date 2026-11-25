@@ -92,3 +92,29 @@ jobs:
           name: frontend-coverage
           path: frontend/coverage/
           if-no-files-found: warn    
+
+  # ----------- the whole app as a Docker package (what other teams will run) ----------------
+  docker-package:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download the code
+        uses: actions/checkout@v4
+
+      # builds the images and starts the database, backend and web containers
+      - name: Build and start the whole app
+        run: docker compose up --build -d --wait
+
+      # the site, the page fallback, the API and the demo data must all answer
+      - name: Check the site, the API and the demo data
+        run: |
+          curl -fsS http://localhost:8088/ > /dev/null
+          curl -fsS http://localhost:8088/products > /dev/null
+          curl -fsS http://localhost:8088/api/health | grep -q '"database": *"up"'
+          curl -fsS http://localhost:8088/api/products | grep -q 'Organic Apples'
+          curl -fsS -X POST http://localhost:8088/api/auth/login -H 'Content-Type: application/json' -d '{"email":"manager@ofs.test","password":"manager-pass-1"}' | grep -q '"role": *"manager"'
+
+      # show the container logs when something failed
+      - name: Show the logs if something failed
+        if: failure()
+        run: docker compose logs

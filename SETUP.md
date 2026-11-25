@@ -2,7 +2,92 @@
 
 Step-by-step setup for the OFS project, verified for **Windows 10/11 (x86-64)** and **macOS on Apple Silicon (M1–M5)**.
 
+**Just want to run the app?** Use the [Quick start with Docker](#quick-start-with-docker): one command, nothing else to install. The Parts below are for working on the code.
+
 Follow the parts in order. Each ends with a check — if the check fails, stop and look at [Troubleshooting](#troubleshooting) rather than continuing. Allow about 45 minutes the first time, most of it waiting for installers.
+
+---
+
+## Quick start with Docker
+
+**This is the fastest way to run OFS, and the one to use if you are evaluating the project.** It needs only Docker. You do not install Python, Node.js, MySQL or Apache, and you do not run any SQL: the database and the demo data are set up for you. (To work on the code instead, skip this section and follow Parts 0 to 5.)
+
+### 1. Install and start Docker Desktop
+
+- **Windows 10/11:** install [Docker Desktop](https://www.docker.com/products/docker-desktop/). Keep "Use WSL 2" ticked in the installer, restart if asked, then start Docker Desktop and wait until it says it is running.
+- **macOS (Apple Silicon or Intel):** install Docker Desktop for your chip, open it from Applications, and wait until it says it is running.
+- **Linux:** install Docker Engine and the Compose plugin.
+
+Check it works. This should print a version number:
+
+```bash
+docker compose version
+```
+
+### 2. Get the code and start the app
+
+```bash
+git clone https://github.com/CS160-Team-2/cs160proj.git
+cd cs160proj
+docker compose up --build
+```
+
+The first time, Docker downloads the base images and builds the site, which takes a few minutes. Later starts take about 20 seconds. The app is ready when the terminal shows `Serving on http://0.0.0.0:5001` from the backend and the three containers (`db`, `backend`, `web`) are running. Leave this terminal open; press **Ctrl+C** to stop. (Use `docker compose up --build -d` instead to get your terminal back.)
+
+### 3. Open the site
+
+Go to **<http://localhost:8088>**. Sign in with a demo account, or check out as a guest with no account:
+
+| Role | Email | Password |
+|---|---|---|
+| Customer | `customer@ofs.test` | `customer-pass-1` |
+| Employee | `employee@ofs.test` | `employee-pass-1` |
+| Manager | `manager@ofs.test` | `manager-pass-1` |
+
+[Part 5](#part-5--verify-the-whole-system) walks through what each role can do, and `examples/delivery-manifests/` has the sample files for the manager's restock upload. Card payments use a built-in test card form: use `4242 4242 4242 4242`, any future date, any 3-digit code, and any name. The map is the built-in offline one, so any address with a house number is accepted.
+
+**What is running:** a MySQL 8 container (`db`) that loads `backend/schema/schema.sql` on its first start, the Flask API (`backend`, served by Waitress), and Apache 2.4 (`web`) that serves the site and forwards `/api` to the backend. Only the Apache address, port 8088, is opened on your computer.
+
+### Everyday commands
+
+Run these in the repository folder.
+
+| Do this | Command |
+|---|---|
+| Stop, keeping your data | `docker compose stop` |
+| Start it again | `docker compose start` |
+| Stop and remove the containers, keeping your data | `docker compose down` |
+| **Start over with the original demo data** | `docker compose down -v`, then `docker compose up -d` |
+| Watch the backend's log | `docker compose logs -f backend` |
+| Look inside the database | `docker compose exec db mysql -ucs160team2 -pteam2_password ofs` |
+| Rebuild after the code changed | `docker compose up --build -d` |
+
+Your data (orders, accounts, products you add, uploaded pictures) is kept in a Docker volume called `ofs_db`, so it survives a restart. Only `docker compose down -v` erases it. The demo data is loaded only when the volume is empty, which is why a changed `schema.sql` needs `down -v` to take effect.
+
+### Optional settings
+
+Everything works with no settings. To change something, copy `docker.env.example` to a file named `.env` in the same folder as `compose.yaml`, edit the lines you want, and run `docker compose up --build -d`:
+
+| Setting | What it does |
+|---|---|
+| `OFS_PORT` | The port of the site on your computer (default 8088) |
+| `SECRET_KEY` | Signs the sign-in cookie; set your own on any shared computer |
+| `VEHICLE_SIMULATION_SECONDS` | Seconds the simulated vehicle takes per stop after dispatch (default 20) |
+| `PAYMENT_GATEWAY`, `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY` | Stripe test payments (see [Stripe](#optional-turn-on-stripe-test-payments)) |
+| `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | PayPal sandbox (see [PayPal](#optional-turn-on-paypal-sandbox)) |
+| `MAP_PROVIDER`, `MAPBOX_ACCESS_TOKEN`, `GOOGLE_MAPS_API_KEY` | A live map (see [live mapping](#optional-turn-on-live-mapping)) |
+
+The Mapbox token and the Stripe publishable key are built into the site, so changing them needs the rebuild (`--build`). For a one-off port change you can write `OFS_PORT=8090 docker compose up -d`. The `.env` file is ignored by Git and is never copied into the images.
+
+### If something goes wrong with Docker
+
+- **"Cannot connect to the Docker daemon" or `docker` is not found:** Docker Desktop is not running. Start it and wait until it says it is running.
+- **"port is already allocated" or "address already in use":** another program uses port 8088. Pick another with `OFS_PORT=8090 docker compose up -d`, then open that port. (Port 8080 is used by the Apache setup in `deploy/APACHE.md`, which is why Docker uses 8088.)
+- **The page says it cannot reach the store:** the backend is still starting or stopped. Check `docker compose ps` (all three should be running and healthy) and `docker compose logs backend`.
+- **The first start takes very long or stops with "unhealthy":** give Docker Desktop at least 4 GB of memory (Settings, Resources) and run `docker compose up --build` again. If the database looks broken, `docker compose down -v` and start again.
+- **You changed `schema.sql` or the demo data and nothing changed:** the database only loads on its first start. Run `docker compose down -v`, then `docker compose up -d`.
+- **The build fails while downloading packages:** check your internet connection and run the command again; Docker resumes from where it stopped.
+- **You want a completely clean slate:** `docker compose down -v --rmi local` removes the containers, the data and the images this project built.
 
 ---
 
@@ -15,7 +100,7 @@ Follow the parts in order. Each ends with a check — if the check fails, stop a
 | **MySQL Community Server** | 8.0 or 8.4 LTS | The database. 8.0.16 or newer is needed for `CHECK` constraints |
 | **MySQL Workbench** | 8.0.36 or newer | Managing the database visually |
 | **Git** | any recent | Source control |
-| **Docker** | any recent | Optional. Only for the Docker test database in 2.4 |
+| **Docker** | any recent | Needed for the [Quick start with Docker](#quick-start-with-docker); otherwise optional (the Docker test database in 2.4) |
 | **Chrome** | any recent | Optional. Only for the browser tests in Part 3 |
 
 Everything else installs from `requirements.txt` and `package.json`.

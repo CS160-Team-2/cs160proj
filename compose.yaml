@@ -1,0 +1,72 @@
+# Runs the whole app: database, backend and web. Start with: docker compose up --build   then open http://localhost:8088
+name: ofs
+
+services:
+  # MySQL 8. The first start loads backend/schema/schema.sql: the tables, the 39 products and the demo accounts.
+  db:
+    image: mysql:8.0.46
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: team2_password
+      MYSQL_DATABASE: ofs
+      MYSQL_USER: cs160team2
+      MYSQL_PASSWORD: team2_password
+    volumes:
+      - ofs_db:/var/lib/mysql
+      - ./backend/schema/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    # Healthy only once the demo data is really loaded (not while MySQL is still starting up).
+    healthcheck:
+      test: ["CMD-SHELL", "mysql -h127.0.0.1 -ucs160team2 -pteam2_password -N -e 'SELECT COUNT(*) FROM ofs.products' | grep -qv '^0$'"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+
+  # The Flask API. Not published to your computer; only the web container talks to it.
+  backend:
+    build:
+      context: .
+      target: backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      MYSQL_HOST: db
+      MYSQL_PORT: "3306"
+      MYSQL_USER: cs160team2
+      MYSQL_PASSWORD: team2_password
+      MYSQL_DATABASE: ofs
+      FRONTEND_ORIGIN: http://localhost:${OFS_PORT:-8088}
+      TRUSTED_PROXIES: "1"
+      SECRET_KEY: ${SECRET_KEY:-dev-only-secret-change-me}
+      VEHICLE_SIMULATION_SECONDS: ${VEHICLE_SIMULATION_SECONDS:-20}
+      PAYMENT_GATEWAY: ${PAYMENT_GATEWAY:-fake}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      PAYPAL_CLIENT_ID: ${PAYPAL_CLIENT_ID:-}
+      PAYPAL_CLIENT_SECRET: ${PAYPAL_CLIENT_SECRET:-}
+      MAP_PROVIDER: ${MAP_PROVIDER:-fake}
+      MAPBOX_ACCESS_TOKEN: ${MAPBOX_ACCESS_TOKEN:-}
+      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if b'\"up\"' in urllib.request.urlopen('http://localhost:5001/api/health').read() else 1)"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  # Apache: the built site and the forward of /api to the backend. This is the only part you open in a browser.
+  web:
+    build:
+      context: .
+      target: web
+      args:
+        VITE_MAPBOX_ACCESS_TOKEN: ${MAPBOX_ACCESS_TOKEN:-}
+        VITE_STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${OFS_PORT:-8088}:80"
+
+volumes:
+  ofs_db:
